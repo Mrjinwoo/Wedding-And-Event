@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 type Profile = {
   id: string; full_name: string; phone: string | null;
@@ -9,6 +10,8 @@ type Profile = {
 };
 
 export default function AdminUsersPage() {
+  const router = useRouter();
+  const mfaRedirecting = useRef(false);
   const [users, setUsers] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -16,7 +19,30 @@ export default function AdminUsersPage() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [updating, setUpdating] = useState<string | null>(null);
+  const [resending, setResending] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [showInvite, setShowInvite] = useState(false);
+  const [inviting, setInviting] = useState(false);
+  const [inviteName, setInviteName] = useState("");
+  const [inviteEmail, setInviteEmail] = useState("");
+
+  const goToMfa = useCallback(async () => {
+    if (mfaRedirecting.current) return;
+    mfaRedirecting.current = true;
+    const next = "/admin/users";
+    try {
+      const response = await fetch("/api/auth/mfa/status");
+      const status = await response.json();
+      const destination = response.ok && status.enrolled
+        ? `/admin/mfa/challenge?next=${encodeURIComponent(next)}`
+        : next;
+      router.replace(destination);
+    } catch {
+      mfaRedirecting.current = false;
+      setError("Could not check MFA. Refresh the page and try again.");
+    }
+  }, [router]);
 
   const loadUsers = useCallback(async () => {
     setLoading(true);
@@ -25,24 +51,83 @@ export default function AdminUsersPage() {
     if (role) params.set("role", role);
     const res = await fetch(`/api/admin/users?${params}`);
     const json = await res.json();
+    if (res.status === 403 && json.error === "AAL2 required") {
+      await goToMfa();
+      setLoading(false);
+      return;
+    }
+    if (!res.ok) {
+      setError(json.error ?? "Could not load users.");
+      setLoading(false);
+      return;
+    }
+    setError("");
     setUsers(json.data ?? []);
     setTotal(json.total ?? 0);
     setLoading(false);
-  }, [page, search, role]);
+  }, [page, search, role, goToMfa]);
 
   useEffect(() => { loadUsers(); }, [loadUsers]);
 
   async function updateUser(userId: string, updates: Record<string, unknown>) {
-    setUpdating(userId); setError("");
+    setUpdating(userId); setError(""); setNotice("");
     const res = await fetch("/api/admin/users", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ userId, ...updates }),
     });
     const json = await res.json();
-    if (!res.ok) setError(json.error);
+    if (res.status === 403 && json.error === "AAL2 required") await goToMfa();
+    else if (!res.ok) setError(json.error);
     else loadUsers();
     setUpdating(null);
+  }
+
+  async function inviteStaff(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setInviting(true); setError(""); setNotice("");
+    try {
+      const response = await fetch("/api/admin/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fullName: inviteName, email: inviteEmail }),
+      });
+      const result = await response.json();
+      if (response.status === 403 && result.error === "AAL2 required") {
+        await goToMfa();
+        return;
+      }
+      if (!response.ok) throw new Error(result.error ?? "Could not send the staff invitation.");
+      setNotice(result.message);
+      setInviteName(""); setInviteEmail(""); setShowInvite(false);
+      await loadUsers();
+    } catch (inviteError) {
+      setError(inviteError instanceof Error ? inviteError.message : "Could not send the staff invitation.");
+    } finally {
+      setInviting(false);
+    }
+  }
+
+  async function resendInvite(userId: string) {
+    setResending(userId); setError(""); setNotice("");
+    try {
+      const response = await fetch("/api/admin/users/resend-invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId }),
+      });
+      const result = await response.json();
+      if (response.status === 403 && result.error === "AAL2 required") {
+        await goToMfa();
+        return;
+      }
+      if (!response.ok) throw new Error(result.error ?? "Could not resend the staff invitation.");
+      setNotice(result.message ?? "A new invitation was sent.");
+    } catch (resendError) {
+      setError(resendError instanceof Error ? resendError.message : "Could not resend the staff invitation.");
+    } finally {
+      setResending(null);
+    }
   }
 
   const totalPages = Math.ceil(total / 10);
@@ -66,11 +151,35 @@ export default function AdminUsersPage() {
             className="px-4 py-2 rounded-lg border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#9B2C4A]">
             <option value="">All Roles</option>
             <option value="user">User</option>
+            <option value="client">Client</option>
+            <option value="staff">Staff</option>
             <option value="admin">Admin</option>
           </select>
+          <button type="button" onClick={() => { setShowInvite(value => !value); setError(""); }}
+            className="rounded-lg bg-[#9B2C4A] px-4 py-2 text-sm font-semibold text-white hover:bg-[#7A1F38]">
+            + Add staff
+          </button>
         </div>
 
         {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">{error}</div>}
+        {notice && <div role="status" className="mb-4 rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-700">{notice}</div>}
+
+        {showInvite && (
+          <form onSubmit={inviteStaff} className="mb-6 grid gap-3 rounded-xl border border-gray-200 bg-white p-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+            <label className="text-xs font-semibold text-gray-600">Staff member name
+              <input required minLength={2} maxLength={100} value={inviteName} onChange={event => setInviteName(event.target.value)}
+                className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm font-normal text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#9B2C4A]" />
+            </label>
+            <label className="text-xs font-semibold text-gray-600">Email address
+              <input required type="email" value={inviteEmail} onChange={event => setInviteEmail(event.target.value)}
+                className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm font-normal text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#9B2C4A]" />
+            </label>
+            <button type="submit" disabled={inviting} className="rounded-lg bg-[#9B2C4A] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+              {inviting ? "Sending invite…" : "Send invite"}
+            </button>
+            <p className="text-xs text-gray-500 sm:col-span-3">We’ll email them a secure link to set their password. They’ll be added with the Staff role.</p>
+          </form>
+        )}
 
         {/* Table */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
@@ -101,6 +210,8 @@ export default function AdminUsersPage() {
                       disabled={updating === u.id}
                       className="text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-[#9B2C4A]">
                       <option value="user">user</option>
+                      <option value="client">client</option>
+                      <option value="staff">staff</option>
                       <option value="admin">admin</option>
                     </select>
                   </td>
@@ -112,10 +223,18 @@ export default function AdminUsersPage() {
                   </td>
                   <td className="px-5 py-3 text-gray-400 text-xs hidden lg:table-cell">{new Date(u.created_at).toLocaleDateString()}</td>
                   <td className="px-5 py-3">
-                    <button onClick={() => updateUser(u.id, { isActive: false })} disabled={updating === u.id}
-                      className="text-xs text-red-400 hover:text-red-600 hover:underline disabled:opacity-50">
-                      Deactivate
-                    </button>
+                    <div className="flex items-center gap-3">
+                      {u.role === "staff" && u.is_active && (
+                        <button onClick={() => resendInvite(u.id)} disabled={resending === u.id || updating === u.id}
+                          className="text-xs font-semibold text-[#9B2C4A] hover:underline disabled:opacity-50">
+                          {resending === u.id ? "Sending…" : "Resend invite / setup link"}
+                        </button>
+                      )}
+                      <button onClick={() => updateUser(u.id, { isActive: false })} disabled={updating === u.id || resending === u.id}
+                        className="text-xs text-red-400 hover:text-red-600 hover:underline disabled:opacity-50">
+                        Deactivate
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

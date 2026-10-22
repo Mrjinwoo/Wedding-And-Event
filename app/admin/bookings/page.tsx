@@ -5,14 +5,19 @@ import Link from "next/link";
 
 type Booking = {
   id: string; event_type: string; event_date: string;
-  guest_count: number; total_price: number; status: string;
+  guest_count: number; total_amount: number; deposit_amount: number | null;
+  payment_deadline: string | null; status: string;
   created_at: string;
   profiles: { full_name: string } | null;
   venues: { name: string } | null;
+  packages: { name: string } | null;
+  payment_proof_path: string | null;
+  payment_proof_status: "not_submitted" | "pending" | "rejected" | "verified";
 };
 
 const STATUS_COLORS: Record<string, string> = {
   pending: "bg-yellow-100 text-yellow-700",
+  awaiting_payment: "bg-orange-100 text-orange-700",
   confirmed: "bg-green-100 text-green-700",
   cancelled: "bg-red-100 text-red-600",
   completed: "bg-blue-100 text-blue-700",
@@ -55,6 +60,33 @@ export default function AdminBookingsPage() {
     setUpdating(null);
   }
 
+  async function reviewPaymentProof(bookingId: string, paymentDecision: "approve" | "reject") {
+    setUpdating(bookingId); setError("");
+    const res = await fetch("/api/admin/bookings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ bookingId, paymentDecision }),
+    });
+    const json = await res.json();
+    if (!res.ok) setError(json.error);
+    else loadBookings();
+    setUpdating(null);
+  }
+
+  async function viewPaymentProof(bookingId: string) {
+    const preview = window.open("about:blank", "_blank");
+    if (preview) preview.opener = null;
+    const response = await fetch(`/api/admin/bookings/payment-proof?bookingId=${encodeURIComponent(bookingId)}`);
+    const result = await response.json();
+    if (!response.ok || !result.signedUrl) {
+      preview?.close();
+      setError(result.error ?? "Could not open the payment receipt.");
+      return;
+    }
+    if (preview) preview.location.href = result.signedUrl;
+    else window.location.href = result.signedUrl;
+  }
+
   async function deleteBooking(id: string) {
     if (!confirm("Delete this booking permanently?")) return;
     setUpdating(id); setError("");
@@ -85,8 +117,8 @@ export default function AdminBookingsPage() {
           <select value={status} onChange={e => { setStatus(e.target.value); setPage(1); }}
             className="px-4 py-2 rounded-lg border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#9B2C4A]">
             <option value="">All Statuses</option>
-            {["pending","confirmed","cancelled","completed"].map(s => (
-              <option key={s} value={s}>{s.charAt(0).toUpperCase()+s.slice(1)}</option>
+            {["pending","awaiting_payment","confirmed","cancelled","expired","completed"].map(s => (
+              <option key={s} value={s}>{s.replaceAll("_", " ").replace(/\b\w/g, char => char.toUpperCase())}</option>
             ))}
           </select>
         </div>
@@ -110,19 +142,54 @@ export default function AdminBookingsPage() {
               ) : bookings.map(b => (
                 <tr key={b.id} className="hover:bg-gray-50 transition-colors">
                   <td className="px-4 py-3 font-medium text-[#1a1a1a]">{b.profiles?.full_name ?? "—"}</td>
-                  <td className="px-4 py-3 text-gray-500">{b.venues?.name ?? "—"}</td>
+                  <td className="px-4 py-3 text-gray-500">{b.venues?.name ?? "—"}{b.packages?.name && <span className="block text-xs text-[#9B2C4A]">{b.packages.name}</span>}</td>
                   <td className="px-4 py-3 text-gray-700">{b.event_type}</td>
                   <td className="px-4 py-3 text-gray-500">{new Date(b.event_date).toLocaleDateString()}</td>
                   <td className="px-4 py-3 text-gray-500">{b.guest_count}</td>
-                  <td className="px-4 py-3 text-gray-700 font-medium">₱{Number(b.total_price).toLocaleString()}</td>
+                  <td className="px-4 py-3 text-gray-700 font-medium">₱{Number(b.total_amount).toLocaleString()}</td>
                   <td className="px-4 py-3">
-                    <select value={b.status} onChange={e => updateStatus(b.id, e.target.value)}
-                      disabled={updating === b.id}
-                      className={`text-xs font-semibold px-2 py-1 rounded-full border-0 focus:outline-none focus:ring-1 focus:ring-[#9B2C4A] ${STATUS_COLORS[b.status] ?? "bg-gray-100 text-gray-600"}`}>
-                      {["pending","confirmed","cancelled","completed"].map(s => (
-                        <option key={s} value={s}>{s}</option>
-                      ))}
-                    </select>
+                    <span className={`text-xs font-semibold px-2 py-1 rounded-full ${STATUS_COLORS[b.status] ?? "bg-gray-100 text-gray-600"}`}>
+                      {b.status.replaceAll('_', ' ').replace(/\b\w/g, char => char.toUpperCase())}
+                    </span>
+                    {b.status === "pending" && (
+                      <div className="mt-2 flex flex-col gap-1.5">
+                        <button onClick={() => updateStatus(b.id, "awaiting_payment")} disabled={updating === b.id}
+                          className="text-left text-xs font-semibold text-[#9B2C4A] hover:underline disabled:opacity-50">
+                          Approve · request 30% downpayment
+                        </button>
+                        <button onClick={() => updateStatus(b.id, "cancelled")} disabled={updating === b.id}
+                          className="text-left text-xs text-gray-500 hover:underline disabled:opacity-50">Decline request</button>
+                      </div>
+                    )}
+                    {b.status === "awaiting_payment" && (
+                      <div className="mt-2 flex flex-col gap-1.5">
+                        <span className="text-xs text-gray-500">Deposit: ₱{Number(b.deposit_amount ?? 0).toLocaleString()}</span>
+                        {b.payment_deadline && <span className="text-xs text-gray-500">Due: {new Date(b.payment_deadline).toLocaleString()}</span>}
+                        {b.payment_proof_status === "pending" && b.payment_proof_path ? (
+                          <>
+                            <button onClick={() => viewPaymentProof(b.id)} className="text-left text-xs font-semibold text-[#9B2C4A] hover:underline">View uploaded receipt</button>
+                            <button onClick={() => reviewPaymentProof(b.id, "approve")} disabled={updating === b.id} className="text-left text-xs font-semibold text-green-700 hover:underline disabled:opacity-50">Verify receipt and confirm</button>
+                            <button onClick={() => reviewPaymentProof(b.id, "reject")} disabled={updating === b.id} className="text-left text-xs font-semibold text-red-600 hover:underline disabled:opacity-50">Reject receipt</button>
+                          </>
+                        ) : b.payment_proof_status === "rejected" ? (
+                          <span className="text-xs text-red-600">Receipt rejected; customer may resubmit.</span>
+                        ) : b.payment_proof_status === "not_submitted" ? (
+                          <span className="text-xs text-gray-500">Waiting for customer payment proof.</span>
+                        ) : null}
+                        {b.payment_proof_status !== "pending" && (
+                          <button onClick={() => updateStatus(b.id, "confirmed")} disabled={updating === b.id}
+                            className="text-left text-xs font-semibold text-green-700 hover:underline disabled:opacity-50">
+                            Mark deposit received manually
+                          </button>
+                        )}
+                        <button onClick={() => updateStatus(b.id, "cancelled")} disabled={updating === b.id}
+                          className="text-left text-xs text-gray-500 hover:underline disabled:opacity-50">Cancel hold</button>
+                      </div>
+                    )}
+                    {b.status === "confirmed" && (
+                      <button onClick={() => updateStatus(b.id, "completed")} disabled={updating === b.id}
+                        className="mt-2 block text-xs font-semibold text-blue-700 hover:underline disabled:opacity-50">Mark completed</button>
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     <button onClick={() => deleteBooking(b.id)} disabled={updating === b.id}

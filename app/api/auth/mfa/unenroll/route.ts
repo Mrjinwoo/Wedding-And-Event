@@ -66,7 +66,6 @@ export async function DELETE(req: NextRequest) {
       .from('profiles')
       .update({
         mfa_recovery_codes: [],
-        updated_at: new Date().toISOString(),
       })
       .eq('id', user.id)
 

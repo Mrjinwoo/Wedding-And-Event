@@ -8,10 +8,11 @@ export async function POST(req: NextRequest) {
     const parsed = forgotPasswordSchema.safeParse(body)
 
     if (!parsed.success) {
-      return NextResponse.json(
-        { error: parsed.error.issues[0].message },
-        { status: 400 }
-      )
+      // #6: return the same message regardless — don't leak whether the email
+      // format was valid or not
+      return NextResponse.json({
+        message: 'If that email exists, a password reset link has been sent.',
+      })
     }
 
     const { email } = parsed.data

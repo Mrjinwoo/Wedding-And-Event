@@ -15,6 +15,7 @@ export default async function AdminReportsPage() {
     { count: totalUsers },
     { count: totalBookings },
     { count: pendingBookings },
+    { count: awaitingPaymentBookings },
     { count: confirmedBookings },
     { count: cancelledBookings },
     { count: completedBookings },
@@ -25,15 +26,16 @@ export default async function AdminReportsPage() {
     supabase.from('profiles').select('*', { count: 'exact', head: true }),
     supabase.from('bookings').select('*', { count: 'exact', head: true }),
     supabase.from('bookings').select('*', { count: 'exact', head: true }).eq('status', 'pending'),
+    supabase.from('bookings').select('*', { count: 'exact', head: true }).eq('status', 'awaiting_payment'),
     supabase.from('bookings').select('*', { count: 'exact', head: true }).eq('status', 'confirmed'),
     supabase.from('bookings').select('*', { count: 'exact', head: true }).eq('status', 'cancelled'),
     supabase.from('bookings').select('*', { count: 'exact', head: true }).eq('status', 'completed'),
-    supabase.from('bookings').select('total_price').in('status', ['confirmed', 'completed']),
+    supabase.from('bookings').select('total_amount').in('status', ['confirmed', 'completed']),
     supabase.from('bookings').select('venue_id, venues:venue_id(name)').eq('status', 'confirmed'),
-    supabase.from('bookings').select('created_at, total_price, status').order('created_at', { ascending: true }),
+    supabase.from('bookings').select('created_at, total_amount, status').order('created_at', { ascending: true }),
   ])
 
-  const totalRevenue = revenueData?.reduce((s, b) => s + Number(b.total_price), 0) ?? 0
+  const totalRevenue = revenueData?.reduce((s, b) => s + Number(b.total_amount), 0) ?? 0
 
   // Venue booking counts
   const venueMap: Record<string, { name: string; count: number }> = {}
@@ -49,6 +51,7 @@ export default async function AdminReportsPage() {
 
   const bookingStatusData = [
     { label: 'Pending', count: pendingBookings ?? 0, color: 'bg-yellow-400' },
+    { label: 'Awaiting Payment', count: awaitingPaymentBookings ?? 0, color: 'bg-orange-500' },
     { label: 'Confirmed', count: confirmedBookings ?? 0, color: 'bg-green-500' },
     { label: 'Cancelled', count: cancelledBookings ?? 0, color: 'bg-red-400' },
     { label: 'Completed', count: completedBookings ?? 0, color: 'bg-blue-500' },
@@ -70,7 +73,7 @@ export default async function AdminReportsPage() {
           {[
             { label: 'Total Users', value: totalUsers ?? 0, icon: '👥', sub: 'registered accounts' },
             { label: 'Total Bookings', value: totalBookings ?? 0, icon: '📋', sub: 'all time' },
-            { label: 'Total Revenue', value: `₱${totalRevenue.toLocaleString()}`, icon: '💰', sub: 'confirmed + completed' },
+            { label: 'Confirmed Booking Value', value: `₱${totalRevenue.toLocaleString()}`, icon: '💰', sub: 'contract value, not payment collected' },
             { label: 'Completion Rate', value: `${totalBookings ? Math.round(((completedBookings ?? 0) / totalBookings) * 100) : 0}%`, icon: '📈', sub: 'of all bookings' },
           ].map(stat => (
             <div key={stat.label} className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
@@ -144,7 +147,7 @@ export default async function AdminReportsPage() {
                 ['Confirmed Bookings', confirmedBookings ?? 0],
                 ['Completed Bookings', completedBookings ?? 0],
                 ['Cancelled Bookings', cancelledBookings ?? 0],
-                ['Total Revenue (Confirmed + Completed)', `₱${totalRevenue.toLocaleString()}`],
+                ['Confirmed Booking Value (Confirmed + Completed)', `₱${totalRevenue.toLocaleString()}`],
               ].map(([label, value]) => (
                 <tr key={String(label)} className="hover:bg-gray-50">
                   <td className="px-6 py-3 text-gray-600">{label}</td>

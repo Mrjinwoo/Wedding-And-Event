@@ -1,83 +1,80 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { messageSchema } from '@/lib/validation'
+import { requireUser } from '@/lib/supabase/requireUser'
 
-// GET /api/messages — conversation thread
+// GET /api/messages
 export async function GET(req: NextRequest) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const auth = await requireUser(req)
+  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
+  const supabase = await createClient()
   const { searchParams } = new URL(req.url)
   const withUserId = searchParams.get('with')
-
-  const { data: profile } = await supabase
-    .from('profiles').select('role').eq('id', user.id).single()
+  const isStaff = auth.profile.role === 'admin' || auth.profile.role === 'staff'
 
   let query = supabase
     .from('messages')
-    .select(`
-      *,
-      sender:sender_id ( full_name, avatar_url ),
-      receiver:receiver_id ( full_name, avatar_url )
-    `)
+    .select(`*, sender:sender_id(full_name, avatar_url), receiver:receiver_id(full_name, avatar_url), venue:venue_id(name), package:package_id(name)`)
     .order('created_at', { ascending: true })
 
-  if (profile?.role === 'admin' && withUserId) {
-    // Admin viewing thread with specific user
+  if (isStaff && withUserId) {
+    const { data: staffProfiles } = await supabase.from('profiles').select('id').in('role', ['admin', 'staff'])
+    const staffIds = (staffProfiles ?? []).map(profile => profile.id)
+    if (staffIds.length === 0) return NextResponse.json({ data: [] })
+    const staffIdList = `(${staffIds.join(',')})`
     query = query.or(
-      `and(sender_id.eq.${user.id},receiver_id.eq.${withUserId}),and(sender_id.eq.${withUserId},receiver_id.eq.${user.id})`
+      `and(sender_id.eq.${withUserId},receiver_id.in.${staffIdList}),and(receiver_id.eq.${withUserId},sender_id.in.${staffIdList})`
     )
   } else {
-    // User views their own thread
-    query = query.or(
-      `sender_id.eq.${user.id},receiver_id.eq.${user.id}`
-    )
+    query = query.or(`sender_id.eq.${auth.user.id},receiver_id.eq.${auth.user.id}`)
   }
 
   const { data, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  // Mark as read
-  await supabase
-    .from('messages')
-    .update({ is_read: true })
-    .eq('receiver_id', user.id)
-    .eq('is_read', false)
+  await supabase.from('messages').update({ is_read: true })
+    .eq('receiver_id', auth.user.id).eq('is_read', false)
 
   return NextResponse.json({ data })
 }
 
-// POST /api/messages — send message
+// POST /api/messages
 export async function POST(req: NextRequest) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const auth = await requireUser(req)
+  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
+  const supabase = await createClient()
   const body = await req.json()
   const parsed = messageSchema.safeParse(body)
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 })
   }
 
-  const { receiverId, content, bookingId } = parsed.data
+  const { receiverId, content, bookingId, venueId, packageId } = parsed.data
+  if (venueId) {
+    const { data: venue } = await supabase.from('venues').select('id, name').eq('id', venueId).eq('is_active', true).eq('review_status', 'approved').single()
+    if (!venue) return NextResponse.json({ error: 'Venue not found.' }, { status: 404 })
+  }
+
+  if (packageId) {
+    const { data: selectedPackage } = await supabase.from('packages').select('id, name').eq('id', packageId).single()
+    if (!selectedPackage) return NextResponse.json({ error: 'Package not found.' }, { status: 404 })
+  }
 
   const { data, error } = await supabase.from('messages').insert({
-    sender_id: user.id,
+    sender_id:   auth.user.id,
     receiver_id: receiverId,
     content,
-    booking_id: bookingId ?? null,
+    booking_id:  bookingId ?? null,
+    venue_id: venueId ?? null,
+    package_id: packageId ?? null,
   }).select().single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  // Create notification for receiver
-  await supabase.from('notifications').insert({
-    user_id: receiverId,
-    title: 'New Message',
-    body: content.slice(0, 80),
-    link: '/dashboard/messages',
-  })
+  const { error: notificationError } = await supabase.rpc('notify_message_recipient', { p_message_id: data.id })
+  if (notificationError) console.error('[messages] Failed to notify recipient:', notificationError.message)
 
   return NextResponse.json({ data }, { status: 201 })
 }

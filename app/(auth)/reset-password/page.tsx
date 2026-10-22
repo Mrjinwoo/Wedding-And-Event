@@ -46,12 +46,12 @@ function ResetPasswordForm() {
       const res = await fetch("/api/auth/reset-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ password, confirmPassword: password }),
       });
       const json = await res.json();
       if (!res.ok) {
         if (res.status === 401 || json.error?.toLowerCase().includes("unauthorized")) {
-          setError("This reset link has expired. Please request a new one.");
+          setError("The reset session could not be verified. Open the newest password email link again in this browser, then try once more.");
         } else {
           setError(json.error);
         }

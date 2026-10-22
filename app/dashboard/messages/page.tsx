@@ -7,6 +7,10 @@ type Message = {
   id: string; content: string; is_read: boolean; created_at: string;
   sender_id: string;
   sender: { full_name: string; avatar_url: string | null } | null;
+  venue_id: string | null;
+  venue: { name: string } | null;
+  package_id: string | null;
+  package: { name: string } | null;
 };
 
 export default function MessagesPage() {
@@ -16,6 +20,7 @@ export default function MessagesPage() {
   const [sending, setSending] = useState(false);
   const [adminId, setAdminId] = useState<string | null>(null);
   const [myId, setMyId] = useState<string | null>(null);
+  const [conversationVenueId, setConversationVenueId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -42,6 +47,8 @@ export default function MessagesPage() {
     const json = await res.json();
     if (json.data) {
       setMessages(json.data);
+      const latestVenueMessage = [...json.data].reverse().find((message: Message) => message.venue_id);
+      setConversationVenueId(latestVenueMessage?.venue_id ?? null);
       // Detect my id and admin id from messages
       if (json.data.length > 0) {
         const first = json.data[0];
@@ -66,7 +73,7 @@ export default function MessagesPage() {
       const res = await fetch("/api/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ receiverId: adminId, content: content.trim() }),
+        body: JSON.stringify({ receiverId: adminId, content: content.trim(), venueId: conversationVenueId ?? undefined }),
       });
       const json = await res.json();
       if (!res.ok) { setError(json.error); return; }
@@ -86,7 +93,7 @@ export default function MessagesPage() {
         <div className="max-w-3xl mx-auto">
           <Link href="/dashboard" className="text-white/70 text-sm hover:text-white">← Dashboard</Link>
           <h1 className="text-white font-display text-xl font-bold mt-1">Messages</h1>
-          <p className="text-white/60 text-xs">Chat with the venue admin</p>
+          <p className="text-white/60 text-xs">Chat with the venue team. Inquiries do not reserve a date or require payment.</p>
         </div>
       </div>
 
@@ -110,7 +117,9 @@ export default function MessagesPage() {
                   <div key={msg.id} className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
                     <div className={`max-w-[75%] rounded-2xl px-4 py-2.5 ${isMe ? "bg-[#9B2C4A] text-white rounded-br-sm" : "bg-gray-100 text-[#1a1a1a] rounded-bl-sm"}`}>
                       {!isMe && <p className="text-[10px] font-semibold mb-1 text-[#9B2C4A]">{msg.sender?.full_name ?? "Admin"}</p>}
-                      <p className="text-sm leading-relaxed">{msg.content}</p>
+                      {msg.venue && <p className={`text-[10px] font-semibold mb-1 ${isMe ? "text-white/70" : "text-[#9B2C4A]"}`}>Re: {msg.venue.name}</p>}
+                      {msg.package && <p className={`text-[10px] font-semibold mb-1 ${isMe ? "text-white/70" : "text-[#9B2C4A]"}`}>Package: {msg.package.name}</p>}
+                      <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{msg.content}</p>
                       <p className={`text-[10px] mt-1 ${isMe ? "text-white/60" : "text-gray-400"}`}>
                         {new Date(msg.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                       </p>

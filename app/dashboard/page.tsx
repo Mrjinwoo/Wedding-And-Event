@@ -1,24 +1,25 @@
 import { redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
 import LogoutButton from '@/components/LogoutButton'
+import { createClient } from '@/lib/supabase/server'
+import { requireUserPage } from '@/lib/supabase/requireUser'
+import { expireOverdueBookings } from '@/lib/bookings'
 
 export default async function DashboardPage() {
+  const result = await requireUserPage()
+  if ('redirect' in result) redirect(result.redirect)
+  const { user, profile } = result
+
+  if (profile.role === 'admin' || profile.role === 'staff') redirect('/admin')
+
+  await expireOverdueBookings()
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
-
-  const { data: profile } = await supabase
-    .from('profiles').select('*').eq('id', user.id).single()
-
-  if (profile?.role === 'admin') redirect('/admin')
 
   // Fetch user data in parallel
   const [
     { data: bookings },
     { data: messages },
-    { data: notifications },
-    { data: activity },
+    { data: notifications },    { data: activity },
   ] = await Promise.all([
     supabase.from('bookings')
       .select('*, venues:venue_id(name, location, image_url)')
@@ -45,6 +46,7 @@ export default async function DashboardPage() {
 
   const statusColor: Record<string, string> = {
     pending: 'bg-yellow-100 text-yellow-700',
+    awaiting_payment: 'bg-orange-100 text-orange-700',
     confirmed: 'bg-green-100 text-green-700',
     cancelled: 'bg-red-100 text-red-600',
     completed: 'bg-blue-100 text-blue-700',
@@ -70,7 +72,7 @@ export default async function DashboardPage() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {[
             { label: 'Total Bookings', value: bookings?.length ?? 0, icon: '📋', color: 'bg-white' },
-            { label: 'Pending', value: bookings?.filter(b => b.status === 'pending').length ?? 0, icon: '⏳', color: 'bg-yellow-50' },
+            { label: 'Open Requests', value: bookings?.filter(b => ['pending', 'awaiting_payment'].includes(b.status)).length ?? 0, icon: '⏳', color: 'bg-yellow-50' },
             { label: 'Confirmed', value: bookings?.filter(b => b.status === 'confirmed').length ?? 0, icon: '✅', color: 'bg-green-50' },
             { label: 'Unread Messages', value: messages?.length ?? 0, icon: '💬', color: 'bg-blue-50' },
           ].map(stat => (
@@ -88,13 +90,13 @@ export default async function DashboardPage() {
             <h2 className="font-display text-base font-semibold text-[#1a1a1a] mb-3">🔔 Notifications</h2>
             <div className="space-y-2">
               {notifications.map(n => (
-                <div key={n.id} className="flex items-start gap-3 text-sm">
+                <Link key={n.id} href={n.link || '/dashboard/bookings'} className="flex items-start gap-3 text-sm hover:bg-blue-100/60 rounded-lg p-2 -m-2">
                   <span className="w-2 h-2 rounded-full bg-blue-500 mt-1.5 flex-shrink-0" />
                   <div>
                     <p className="font-medium text-[#1a1a1a]">{n.title}</p>
                     <p className="text-gray-500 text-xs">{n.body}</p>
                   </div>
-                </div>
+                </Link>
               ))}
             </div>
           </div>
@@ -116,7 +118,7 @@ export default async function DashboardPage() {
                       <p className="text-xs text-gray-400">{(b.venues as {name:string}|null)?.name} · {new Date(b.event_date).toLocaleDateString()}</p>
                     </div>
                     <span className={`text-xs font-semibold px-2.5 py-1 rounded-full flex-shrink-0 ${statusColor[b.status] ?? 'bg-gray-100 text-gray-600'}`}>
-                      {b.status}
+                        {b.status.replaceAll('_', ' ')}
                     </span>
                   </div>
                 ))}

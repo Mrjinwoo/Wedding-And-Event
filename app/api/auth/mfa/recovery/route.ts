@@ -84,7 +84,6 @@ export async function POST(req: NextRequest) {
       .from('profiles')
       .update({
         mfa_recovery_codes: remaining,
-        updated_at: new Date().toISOString(),
       })
       .eq('id', user.id)
 

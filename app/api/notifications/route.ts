@@ -1,16 +1,16 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { requireUser } from '@/lib/supabase/requireUser'
 
-// GET /api/notifications
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const auth = await requireUser(req)
+  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
+
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
   const { data, error } = await supabase
     .from('notifications')
     .select('*')
-    .eq('user_id', user.id)
+    .eq('user_id', auth.user.id)
     .order('created_at', { ascending: false })
     .limit(20)
 
@@ -18,17 +18,28 @@ export async function GET() {
   return NextResponse.json({ data })
 }
 
-// PATCH /api/notifications — mark all as read
-export async function PATCH() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+export async function PATCH(req: NextRequest) {
+  const auth = await requireUser(req)
+  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
-  await supabase
+  const supabase = await createClient()
+  let notificationId: string | null = null
+  try {
+    const body = await req.json()
+    if (typeof body?.notificationId === 'string') notificationId = body.notificationId
+  } catch {
+    // An empty body keeps the existing mark-all behavior for older callers.
+  }
+
+  let query = supabase
     .from('notifications')
     .update({ is_read: true })
-    .eq('user_id', user.id)
+    .eq('user_id', auth.user.id)
     .eq('is_read', false)
+  if (notificationId) query = query.eq('id', notificationId)
 
-  return NextResponse.json({ message: 'All notifications marked as read' })
+  const { error } = await query
+  if (error) return NextResponse.json({ error: 'Could not update notification.' }, { status: 500 })
+
+  return NextResponse.json({ message: notificationId ? 'Notification marked as read' : 'All notifications marked as read' })
 }

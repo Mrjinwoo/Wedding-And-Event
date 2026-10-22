@@ -1,15 +1,13 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { requireAdmin } from '@/lib/supabase/requireUser'
+import { attachUserProfiles } from '@/lib/bookings'
 
-// GET /api/reports — admin analytics
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const auth = await requireAdmin(req)
+  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
+
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const { data: profile } = await supabase
-    .from('profiles').select('role').eq('id', user.id).single()
-  if (profile?.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   // Run all queries in parallel
   const [
@@ -29,9 +27,9 @@ export async function GET() {
     supabase.from('bookings').select('*', { count: 'exact', head: true }).eq('status', 'confirmed'),
     supabase.from('bookings').select('*', { count: 'exact', head: true }).eq('status', 'cancelled'),
     supabase.from('bookings').select('*', { count: 'exact', head: true }).eq('status', 'completed'),
-    supabase.from('bookings').select('total_price').in('status', ['confirmed', 'completed']),
+    supabase.from('bookings').select('total_amount').in('status', ['confirmed', 'completed']),
     supabase.from('bookings')
-      .select('*, profiles:user_id(full_name), venues:venue_id(name)')
+      .select('*, venues:venue_id(name)')
       .order('created_at', { ascending: false })
       .limit(5),
     supabase.from('bookings')
@@ -39,7 +37,9 @@ export async function GET() {
       .eq('status', 'confirmed'),
   ])
 
-  const totalRevenue = revenueData?.reduce((sum, b) => sum + Number(b.total_price), 0) ?? 0
+  const recentBookingsWithProfiles = await attachUserProfiles(supabase, recentBookings)
+
+  const totalRevenue = revenueData?.reduce((sum, b) => sum + Number(b.total_amount), 0) ?? 0
 
   // Count bookings per venue
   const venueBookingMap: Record<string, { name: string; count: number }> = {}
@@ -64,7 +64,7 @@ export async function GET() {
       completedBookings,
       totalRevenue,
     },
-    recentBookings,
+    recentBookings: recentBookingsWithProfiles,
     topVenues,
   })
 }

@@ -33,9 +33,37 @@ export async function GET(_req: NextRequest) {
       )
     }
 
+    // Reuse an existing verified authenticator instead of trying to create
+    // another one. This also handles a factor whose friendly name has changed.
+    const { data: factors, error: factorsError } = await supabase.auth.mfa.listFactors()
+    if (factorsError) {
+      return NextResponse.json({ error: factorsError.message }, { status: 400 })
+    }
+    const totpFactors = factors?.totp ?? []
+    if (totpFactors.some(factor => factor.status === 'verified')) {
+      return NextResponse.json({
+        error: 'An authenticator is already enrolled. Verify its code to continue.',
+        alreadyEnrolled: true,
+      }, { status: 409 })
+    }
+
+    // Previous attempts can leave more than one pending TOTP factor. Remove
+    // those incomplete factors only; never remove a verified factor here.
+    for (const factor of totpFactors.filter(item => item.status !== 'verified')) {
+      const { error: removeError } = await supabase.auth.mfa.unenroll({ factorId: factor.id })
+      if (removeError) {
+        console.error('[mfa/enroll] Failed to remove pending factor:', removeError.message)
+        return NextResponse.json({
+          error: 'A previous MFA setup is incomplete. Remove the pending authenticator in account security, then try again.',
+        }, { status: 409 })
+      }
+    }
+
     const { data, error } = await supabase.auth.mfa.enroll({
       factorType: 'totp',
-      friendlyName: 'Authenticator App',
+      // A unique label avoids Supabase rejecting an enrollment while a deleted
+      // factor name is still present in its schema cache.
+      friendlyName: `Authenticator App ${crypto.randomBytes(3).toString('hex')}`,
     })
 
     if (error) {
@@ -123,7 +151,6 @@ export async function POST(req: NextRequest) {
       .from('profiles')
       .update({
         mfa_recovery_codes: hashed,
-        updated_at: new Date().toISOString(),
       })
       .eq('id', user.id)
 

@@ -1,47 +1,35 @@
-import Image from "next/image";
+import { createClient } from "@/lib/supabase/server";
+import GalleryGrid, { type GalleryPhoto } from "./GalleryGrid";
 
-const PHOTOS = [
-  { src: "/wed.jpg",           alt: "Wedding ceremony",        span: "col-span-2 row-span-2" },
-  { src: "/back.jpg",          alt: "Seaside event setup",     span: "" },
-  { src: "/birth.jpg",         alt: "Birthday celebration",    span: "" },
-  { src: "/day.jpg",           alt: "Garden of Love venue",    span: "" },
-  { src: "/weeding venue.jpg", alt: "Royal Banquet Hall",      span: "" },
-  { src: "/wedd.jpg",          alt: "The Grand",               span: "" },
+const STARTER_PHOTOS: GalleryPhoto[] = [
+  { id: "starter-wed", title: "Wedding Ceremony", category: "wedding", caption: "A beautiful setting for a once-in-a-lifetime celebration.", image_url: "/wed.jpg" },
+  { id: "starter-back", title: "Seaside Event Setup", category: "reception", caption: "An elegant reception setup by the sea.", image_url: "/back.jpg" },
+  { id: "starter-birth", title: "Birthday Celebration", category: "birthday", caption: "A joyful space for celebrating together.", image_url: "/birth.jpg" },
+  { id: "starter-day", title: "Garden of Love", category: "venue", caption: "A garden setting for special occasions.", image_url: "/day.jpg" },
+  { id: "starter-hall", title: "Royal Banquet Hall", category: "reception", caption: "A refined hall prepared for a memorable event.", image_url: "/weeding venue.jpg" },
+  { id: "starter-grand", title: "The Grand", category: "wedding", caption: "A grand backdrop for your celebration.", image_url: "/wedd.jpg" },
 ];
 
-export default function GalleryPage() {
+export default async function GalleryPage() {
+  const supabase = await createClient();
+  const { data, error } = await supabase.from("gallery_images")
+    .select("id, title, category, caption, image_url")
+    .eq("is_active", true)
+    .order("sort_order")
+    .order("created_at", { ascending: false });
+  const photos = error || !data?.length ? STARTER_PHOTOS : data as GalleryPhoto[];
+
   return (
     <main className="min-h-screen bg-[#FAF7F5]">
-      {/* Page header */}
-      <section className="bg-[#F5E6EA] py-14 text-center">
-        <h1 className="font-display text-4xl font-bold text-[#1a1a1a]">Gallery</h1>
-        <p className="mt-3 text-gray-500 text-sm max-w-md mx-auto">
-          A glimpse into the magical moments we&apos;ve helped create. Every event tells a unique story.
+      <section className="bg-[#F5E6EA] px-6 py-14 text-center">
+        <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[#9B2C4A]">Moments we love</p>
+        <h1 className="mt-3 font-display text-4xl font-bold text-[#1a1a1a]">Gallery</h1>
+        <p className="mx-auto mt-3 max-w-xl text-sm text-gray-500">
+          Browse weddings, celebrations, and beautiful venue setups. Open a photo to see it up close.
         </p>
       </section>
-
-      {/* Masonry-style grid */}
-      <section className="max-w-6xl mx-auto px-6 py-14">
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 auto-rows-[200px]">
-          {PHOTOS.map((photo) => (
-            <div
-              key={photo.src}
-              className={`relative rounded-2xl overflow-hidden group ${photo.span}`}
-            >
-              <Image
-                src={photo.src}
-                alt={photo.alt}
-                fill
-                sizes="(max-width: 768px) 50vw, 33vw"
-                className="object-cover group-hover:scale-105 transition-transform duration-500"
-              />
-              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors duration-300" />
-              <p className="absolute bottom-3 left-3 text-white text-xs font-medium opacity-0 group-hover:opacity-100 transition-opacity drop-shadow">
-                {photo.alt}
-              </p>
-            </div>
-          ))}
-        </div>
+      <section className="mx-auto max-w-7xl px-5 py-12 sm:px-6 lg:py-16">
+        <GalleryGrid photos={photos} />
       </section>
     </main>
   );

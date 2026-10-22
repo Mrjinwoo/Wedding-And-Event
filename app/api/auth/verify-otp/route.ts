@@ -1,16 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { verifyOtpSchema } from '@/lib/validation'
+import { z } from 'zod'
 import { logActivity } from '@/lib/activity'
+import { LV_COOKIE_NAME, createLvValue, lvCookieOptions } from '@/lib/supabase/lv'
 
-// POST /api/auth/verify-otp
-// Used by:
-//   - /verify-email page (signup email confirmation)
-//   - /book/verify  page (booking gate — same shape, type='email')
+// Point 2: type is hardcoded to 'signup' — never read from the request.
+// This route is only for post-registration email confirmation.
+// The /book/verify gate and any other use-case should call verifyOtp directly
+// or use a separate route.
+
+const schema = z.object({
+  email: z.string().email(),
+  token: z
+    .string()
+    .length(6, 'Code must be exactly 6 digits')
+    .regex(/^\d{6}$/, 'Code must be 6 digits'),
+})
+
+// How recent the email_confirmed_at timestamp must be (seconds).
+// Guards against replaying a valid session to issue a fresh lv cookie.
+const MAX_CONFIRMATION_AGE_SECONDS = 5 * 60
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
-    const parsed = verifyOtpSchema.safeParse(body)
+    const parsed = schema.safeParse(body)
 
     if (!parsed.success) {
       return NextResponse.json(
@@ -19,18 +33,18 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const { email, token, type } = parsed.data
+    const { email, token } = parsed.data
     const supabase = await createClient()
 
+    // type is always 'signup' — never trusted from the client
     const { data, error } = await supabase.auth.verifyOtp({
       email,
       token,
-      type, // 'email' | 'magiclink' | 'email_change'
+      type: 'signup',
     })
 
     if (error) {
       const msg = error.message.toLowerCase()
-
       if (msg.includes('expired') || msg.includes('otp has expired')) {
         return NextResponse.json(
           { error: 'This code has expired. Please request a new one.' },
@@ -53,7 +67,6 @@ export async function POST(req: NextRequest) {
           { status: 429 }
         )
       }
-
       return NextResponse.json({ error: error.message }, { status: 400 })
     }
 
@@ -64,27 +77,46 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Activate profile row now the email is confirmed
+    // Activate profile row
     await supabase
       .from('profiles')
-      .update({ is_active: true, updated_at: new Date().toISOString() })
+      .update({ is_active: true })
       .eq('id', data.user.id)
 
     await logActivity({
-      userId: data.user.id,
-      action: 'EMAIL_VERIFIED',
-      entity: 'profiles',
+      userId:   data.user.id,
+      action:   'EMAIL_VERIFIED',
+      entity:   'profiles',
       entityId: data.user.id,
-      details: { email, type },
+      details:  { email },
     }).catch(() => null)
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       message: 'Email verified successfully.',
-      user: {
-        id: data.user.id,
-        email: data.user.email,
-      },
+      user: { id: data.user.id, email: data.user.email },
     })
+
+    // Point 2: only issue lv if the email was confirmed in the last 5 minutes.
+    // Supabase sets email_confirmed_at when verifyOtp succeeds.  If it is older
+    // than MAX_CONFIRMATION_AGE_SECONDS the user is replaying an already-used
+    // verification (e.g. clicking the OTP page again on an old tab), and we
+    // should not issue a fresh lv cookie for that.
+    const confirmedAt = data.user.email_confirmed_at
+    if (confirmedAt) {
+      const ageSeconds =
+        Math.floor(Date.now() / 1000) -
+        Math.floor(new Date(confirmedAt).getTime() / 1000)
+
+      if (ageSeconds <= MAX_CONFIRMATION_AGE_SECONDS) {
+        response.cookies.set(
+          LV_COOKIE_NAME,
+          createLvValue(data.user.id),
+          lvCookieOptions()
+        )
+      }
+    }
+
+    return response
   } catch {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }

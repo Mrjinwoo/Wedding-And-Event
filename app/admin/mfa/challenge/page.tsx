@@ -26,7 +26,8 @@ export default function MFAChallengePageWrapper() {
 function MFAChallengePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const next = searchParams.get("next") ?? "/admin";
+  const requestedNext = searchParams.get("next");
+  const next = requestedNext?.startsWith("/") && !requestedNext.startsWith("//") ? requestedNext : "/admin";
 
   type Mode = "totp" | "recovery";
 
@@ -56,7 +57,7 @@ function MFAChallengePage() {
 
       if (!listRes.ok || !listJson.factorId) {
         // No enrolled factor — redirect to enroll
-        router.replace("/admin/mfa/enroll");
+        router.replace(`/admin/mfa/enroll?next=${encodeURIComponent(next)}`);
         return;
       }
 
@@ -150,7 +151,7 @@ function MFAChallengePage() {
         return;
       }
       // Factor has been removed — redirect to re-enroll
-      router.push("/admin/mfa/enroll");
+      router.push(`/admin/mfa/enroll?next=${encodeURIComponent(next)}`);
       router.refresh();
     } finally {
       setLoading(false);

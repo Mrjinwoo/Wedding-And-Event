@@ -15,6 +15,11 @@ import { useRouter } from "next/navigation";
 export default function MFAEnrollPage() {
   const router = useRouter();
 
+  function requestedNext() {
+    const raw = new URLSearchParams(window.location.search).get("next");
+    return raw?.startsWith("/") && !raw.startsWith("//") ? raw : "/admin";
+  }
+
   type Stage = "loading" | "scan" | "confirm" | "recovery" | "error";
 
   const [stage, setStage] = useState<Stage>("loading");
@@ -37,20 +42,17 @@ export default function MFAEnrollPage() {
     setStage("loading");
     setError("");
     try {
-      const res = await fetch("/api/auth/mfa/enroll");
-      const json = await res.json();
-      if (!res.ok) {
-        setError(json.error ?? "Failed to start enrollment.");
-        setStage("error");
+      // MFA is optional. Challenge accounts that already enrolled; send all
+      // other staff back to their requested page without showing a QR setup.
+      const statusRes = await fetch("/api/auth/mfa/status");
+      const statusJson = await statusRes.json();
+      if (statusRes.ok && statusJson.factorId) {
+        router.replace(`/admin/mfa/challenge?next=${encodeURIComponent(requestedNext())}`);
         return;
       }
-      setQrCode(json.qrCode);
-      setSecret(json.secret);
-      setFactorId(json.factorId);
-      setStage("scan");
+      router.replace(requestedNext());
     } catch {
-      setError("Something went wrong. Please try again.");
-      setStage("error");
+      router.replace(requestedNext());
     }
   }
 
@@ -284,7 +286,7 @@ export default function MFAEnrollPage() {
               </button>
 
               <button
-                onClick={() => router.push("/admin")}
+                onClick={() => router.push(requestedNext())}
                 className="w-full bg-[#9B2C4A] hover:bg-[#7A1F38] text-white font-display text-base font-semibold tracking-wide py-2.5 rounded-lg transition-colors"
               >
                 I&apos;ve Saved My Codes — Go to Admin

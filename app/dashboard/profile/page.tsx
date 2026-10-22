@@ -37,7 +37,7 @@ export default function ProfilePage() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
     const { error: err } = await supabase.from("profiles")
-      .update({ full_name: form.full_name, phone: form.phone || null, updated_at: new Date().toISOString() })
+      .update({ full_name: form.full_name, phone: form.phone || null })
       .eq("id", user.id);
     if (err) setError(err.message);
     else { setSuccess("Profile updated successfully!"); setProfile(p => p ? {...p, ...form} : p); }

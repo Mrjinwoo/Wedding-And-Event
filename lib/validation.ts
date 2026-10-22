@@ -51,6 +51,23 @@ export const messageSchema = z.object({
   receiverId: z.string().uuid('Invalid receiver'),
   content: z.string().min(1, 'Message cannot be empty').max(1000),
   bookingId: z.string().uuid().optional(),
+  venueId: z.string().uuid().optional(),
+  packageId: z.string().uuid().optional(),
+})
+
+export const inquirySchema = z.object({
+  venueId: z.string().uuid('Choose a valid venue').optional(),
+  packageId: z.string().uuid('Choose a valid package').optional(),
+  name: z.string().trim().min(2, 'Enter your name').max(120),
+  email: z.string().trim().email('Enter a valid email').max(254),
+  phone: z.string().trim().max(40).optional(),
+  eventType: z.string().trim().min(1, 'Choose an event type').max(80),
+  eventDate: z.string().regex(/^$|^\d{4}-\d{2}-\d{2}$/, 'Enter a valid date').optional(),
+  guests: z.number().int().min(1).max(1000).optional(),
+  message: z.string().trim().min(1, 'Write a message for the venue').max(500),
+}).refine(data => Boolean(data.venueId || data.packageId), {
+  message: 'Choose a venue or package',
+  path: ['venueId'],
 })
 
 export const venueSchema = z.object({

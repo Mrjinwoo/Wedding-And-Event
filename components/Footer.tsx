@@ -3,6 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 
 const AUTH_PAGES = ["/login", "/signup", "/forgot-password", "/reset-password"];
 
@@ -56,9 +57,12 @@ const SOCIALS = [
 
 export default function Footer() {
   const pathname = usePathname();
+  const [mounted, setMounted] = useState(false);
   const currentYear = new Date().getFullYear();
 
-  if (AUTH_PAGES.some(p => pathname.startsWith(p))) return null;
+  useEffect(() => setMounted(true), []);
+
+  if (mounted && (AUTH_PAGES.some(p => pathname.startsWith(p)) || pathname.startsWith("/admin") || pathname.startsWith("/dashboard"))) return null;
 
   return (
     <footer className="bg-[#1a1a1a] text-white mt-auto">

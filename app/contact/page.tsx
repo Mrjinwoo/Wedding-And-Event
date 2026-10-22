@@ -1,15 +1,20 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import { createClient } from "@/lib/supabase/client";
+
+type VenueOption = { id: string; name: string };
+type PackageOption = { id: string; name: string; price: number };
 
 export default function ContactPage() {
-  const router = useRouter();
-
+  const [customerDetails, setCustomerDetails] = useState({ name: "", email: "", phone: "" });
   const [form, setForm] = useState({
     name: "",
     email: "",
     phone: "",
+    venueId: "",
+    packageId: "",
     eventType: "",
     eventDate: "",
     guests: "",
@@ -17,7 +22,57 @@ export default function ContactPage() {
   });
   const [submitted, setSubmitted] = useState(false);
   const [verifying, setVerifying] = useState(false);
-  const [verifyError, setVerifyError] = useState("");
+  const [venues, setVenues] = useState<VenueOption[]>([]);
+  const [packages, setPackages] = useState<PackageOption[]>([]);
+  const [error, setError] = useState("");
+  const [requiresLogin, setRequiresLogin] = useState(false);
+
+  useEffect(() => {
+    const requestedVenueId = new URLSearchParams(window.location.search).get("venueId") ?? "";
+    const requestedPackageId = new URLSearchParams(window.location.search).get("packageId") ?? "";
+    if (requestedVenueId || requestedPackageId) setForm(prev => ({ ...prev, venueId: requestedVenueId || prev.venueId, packageId: requestedPackageId || prev.packageId }));
+
+    fetch("/api/venues?limit=100")
+      .then(response => response.json())
+      .then(result => setVenues((result.data ?? []).map((venue: VenueOption) => ({ id: venue.id, name: venue.name }))))
+      .catch(() => setError("Could not load venues. Please refresh and try again."));
+
+    createClient().from("packages").select("id, name, price").eq("is_active", true).order("sort_order")
+      .then(({ data }) => setPackages((data ?? []) as PackageOption[]));
+
+    const supabase = createClient();
+
+    async function prefillCustomerDetails(user: Awaited<ReturnType<typeof supabase.auth.getUser>>["data"]["user"]) {
+      if (!user) return;
+      try {
+        const { data: profile } = await supabase
+          .from("profiles").select("full_name, phone").eq("id", user.id).single();
+        const metadataName = typeof user.user_metadata?.full_name === "string" ? user.user_metadata.full_name : "";
+        const metadataPhone = typeof user.user_metadata?.phone === "string" ? user.user_metadata.phone : "";
+        const details = {
+          name: profile?.full_name || metadataName,
+          email: user.email || "",
+          phone: profile?.phone || metadataPhone,
+        };
+        setCustomerDetails(details);
+        setForm(prev => ({
+          ...prev,
+          name: prev.name || details.name,
+          email: prev.email || details.email,
+          phone: prev.phone || details.phone,
+        }));
+      } catch {
+        // The customer can enter these details manually.
+      }
+    }
+
+    supabase.auth.getUser().then(({ data: { user } }) => prefillCustomerDetails(user));
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      const user = session?.user;
+      if (user) setTimeout(() => void prefillCustomerDetails(user), 0);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
 
   function handleChange(
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
@@ -25,48 +80,44 @@ export default function ContactPage() {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   }
 
-  // On submit: check if the client's email is already verified (has a session).
-  // If not, redirect to /book/verify?email=…&next=/contact so they come back
-  // here after verifying. If yes, complete the inquiry.
+  // Inquiries are saved as messages so the customer can continue the thread.
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setVerifyError("");
+    setError("");
+    setRequiresLogin(false);
+    if (!form.venueId && !form.packageId) {
+      setError("Choose a venue or a package for your inquiry.");
+      return;
+    }
     setVerifying(true);
 
     try {
-      // Ask the server whether this email already has an active session
-      const res = await fetch("/api/auth/send-booking-otp", {
+      const response = await fetch("/api/inquiries", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: form.email }),
+        body: JSON.stringify({
+          ...form,
+          venueId: form.venueId || undefined,
+          packageId: form.packageId || undefined,
+          guests: form.guests ? Number(form.guests) : undefined,
+          eventDate: form.eventDate || undefined,
+        }),
       });
-      const json = await res.json();
+      const result = await response.json();
 
-      if (!res.ok) {
-        // Rate-limited or other error — show inline, don't block the UX
-        if (res.status !== 429) {
-          // Non-rate-limit errors: still allow the form through so inquiries
-          // aren't silently dropped. Log and continue.
-          console.warn("[contact] send-booking-otp non-fatal error:", json.error);
-          setSubmitted(true);
-          return;
-        }
-        setVerifyError(json.error ?? "Too many requests. Please wait a moment.");
+      if (response.status === 401) {
+        setRequiresLogin(true);
+        setError("Log in to send this inquiry and continue the conversation in Messages.");
+        return;
+      }
+      if (!response.ok) {
+        setError(result.error ?? "We couldn't send your inquiry. Please try again.");
         return;
       }
 
-      if (json.alreadyVerified) {
-        // Already logged in — submit the inquiry directly
-        setSubmitted(true);
-        return;
-      }
-
-      // Not yet verified — redirect to OTP gate, come back to /contact after
-      const params = new URLSearchParams({
-        email: form.email,
-        next: "/contact",
-      });
-      router.push(`/book/verify?${params.toString()}`);
+      setSubmitted(true);
+    } catch {
+      setError("A network error occurred. Please try again.");
     } finally {
       setVerifying(false);
     }
@@ -137,10 +188,13 @@ export default function ContactPage() {
                 Message Received!
               </h3>
               <p className="text-gray-500 text-sm max-w-xs">
-                Thank you for reaching out. Our team will contact you within 24 hours to discuss your event.
+                Your inquiry has been sent to the venue team. Continue the conversation from Messages.
               </p>
+              <Link href="/dashboard/messages" className="mt-5 inline-block rounded-lg bg-[#9B2C4A] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#7A1F38]">
+                Continue to Messages
+              </Link>
               <button
-                onClick={() => { setSubmitted(false); setForm({ name: "", email: "", phone: "", eventType: "", eventDate: "", guests: "", message: "" }); }}
+                onClick={() => { setSubmitted(false); setForm({ ...customerDetails, venueId: "", packageId: "", eventType: "", eventDate: "", guests: "", message: "" }); }}
                 className="mt-6 text-sm text-[#9B2C4A] hover:underline font-medium"
               >
                 Send another inquiry
@@ -151,17 +205,41 @@ export default function ContactPage() {
               <h2 className="font-display text-xl font-semibold text-[#1a1a1a] mb-6">
                 Send an Inquiry
               </h2>
-              {verifyError && (
-                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">
-                  {verifyError}
+              <p className="-mt-4 mb-5 text-sm text-gray-500">
+                Ask about availability, pricing, or event details. This does not reserve the date or require payment. Log in to send the inquiry and continue the conversation in Messages.
+              </p>
+              {error && (
+                <div role="alert" className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                  <p>{error}</p>
+                  {requiresLogin && <Link href="/login" target="_blank" className="mt-1 inline-block font-semibold underline">Open login in a new tab</Link>}
                 </div>
               )}
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Venue (optional)</label>
+                    <select
+                      name="venueId" value={form.venueId} onChange={handleChange}
+                      className="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#9B2C4A] focus:border-transparent text-gray-600"
+                    >
+                      <option value="">Select a venue</option>
+                      {venues.map(venue => <option key={venue.id} value={venue.id}>{venue.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Package (optional)</label>
+                    <select
+                      name="packageId" value={form.packageId} onChange={handleChange}
+                      className="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#9B2C4A] focus:border-transparent text-gray-600"
+                    >
+                      <option value="">Select a package</option>
+                      {packages.map(pkg => <option key={pkg.id} value={pkg.id}>{pkg.name} — ₱{Number(pkg.price).toLocaleString()}</option>)}
+                    </select>
+                  </div>
+                  <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">Full Name *</label>
                     <input
-                      type="text" name="name" required value={form.name} onChange={handleChange}
+                      type="text" name="name" autoComplete="name" required value={form.name} onChange={handleChange}
                       placeholder="Your full name"
                       className="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#9B2C4A] focus:border-transparent"
                     />
@@ -169,7 +247,7 @@ export default function ContactPage() {
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">Email Address *</label>
                     <input
-                      type="email" name="email" required value={form.email} onChange={handleChange}
+                      type="email" name="email" autoComplete="email" required value={form.email} onChange={handleChange}
                       placeholder="your@email.com"
                       className="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#9B2C4A] focus:border-transparent"
                     />
@@ -177,7 +255,7 @@ export default function ContactPage() {
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">Phone Number</label>
                     <input
-                      type="tel" name="phone" value={form.phone} onChange={handleChange}
+                      type="tel" name="phone" autoComplete="tel" value={form.phone} onChange={handleChange}
                       placeholder="+63 9xx xxx xxxx"
                       className="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#9B2C4A] focus:border-transparent"
                     />
@@ -207,7 +285,7 @@ export default function ContactPage() {
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">Expected Guests</label>
                     <input
-                      type="number" name="guests" value={form.guests} onChange={handleChange}
+                      type="number" name="guests" min="1" max="1000" value={form.guests} onChange={handleChange}
                       placeholder="e.g. 200"
                       className="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#9B2C4A] focus:border-transparent"
                     />
@@ -216,7 +294,7 @@ export default function ContactPage() {
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Message</label>
                   <textarea
-                    name="message" value={form.message} onChange={handleChange} rows={4}
+                    name="message" required maxLength={500} value={form.message} onChange={handleChange} rows={4}
                     placeholder="Tell us more about your event vision..."
                     className="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#9B2C4A] focus:border-transparent resize-none"
                   />
@@ -226,7 +304,7 @@ export default function ContactPage() {
                   disabled={verifying}
                   className="w-full py-3 rounded-lg bg-[#9B2C4A] hover:bg-[#7A1F38] text-white font-semibold transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  {verifying ? "Verifying email…" : "Send Inquiry"}
+                  {verifying ? "Sending inquiry…" : "Send Inquiry"}
                 </button>
               </form>
             </>

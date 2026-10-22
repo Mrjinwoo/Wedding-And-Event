@@ -1,37 +1,72 @@
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,600&family=Inter:wght@300;400;500;600&display=swap');
+/* ── Google Fonts fallback for browsers without next/font support ─────────── */
+/* next/font/google self-hosts these — this @import is only a fallback.        */
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Poppins:wght@300;400;500;600;700&family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,600&display=swap');
 
 @import "tailwindcss";
 
+/* ── CSS custom properties ────────────────────────────────────────────────── */
 :root {
   --background: #ffffff;
   --foreground: #171717;
-  --brand-mauve: #9B2C4A;
+  --brand-mauve:       #9B2C4A;
   --brand-mauve-light: #B8546A;
-  --brand-mauve-dark: #7A1F38;
-  --brand-navy: #1E3A5F;
-  --brand-gold: #C9A96E;
-  --brand-blush: #F5E6EA;
-  --brand-cream: #FAF7F5;
+  --brand-mauve-dark:  #7A1F38;
+  --brand-navy:        #1E3A5F;
+  --brand-gold:        #C9A96E;
+  --brand-blush:       #F5E6EA;
+  --brand-cream:       #FAF7F5;
+
+  /* populated by next/font variables on <html> */
+  --font-playfair: 'Playfair Display', Georgia, serif;
+  --font-poppins:  'Poppins', 'Inter', sans-serif;
+  --font-script:   'Cormorant Garamond', Georgia, serif;
+
+  /* header height — set by Navbar JS; fallback for SSR */
+  --header-h: 64px;
 }
 
+/* ── Tailwind theme tokens ────────────────────────────────────────────────── */
 @theme inline {
   --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: 'Inter', Arial, Helvetica, sans-serif;
-  --font-display: 'Playfair Display', Georgia, serif;
-  --font-script: 'Cormorant Garamond', Georgia, serif;
+  --color-foreground:  var(--foreground);
+
+  /* font-display  → Playfair Display  (headings, logo) */
+  --font-display: var(--font-playfair);
+  /* font-body     → Poppins            (body, nav, buttons) */
+  --font-body:    var(--font-poppins);
+  /* font-script   → Cormorant Garamond (italic accents) */
+  --font-script:  var(--font-script);
 }
 
+/* ── Base styles ──────────────────────────────────────────────────────────── */
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: 'Inter', Arial, Helvetica, sans-serif;
+  background:  var(--background);
+  color:       var(--foreground);
+  font-family: var(--font-poppins);
 }
 
-.font-display {
-  font-family: 'Playfair Display', Georgia, serif;
+/* ── Font utility classes ─────────────────────────────────────────────────── */
+.font-display { font-family: var(--font-playfair); }
+.font-body    { font-family: var(--font-poppins);  }
+.font-script  { font-family: var(--font-script);   }
+
+/* ── Z-index extension ────────────────────────────────────────────────────── */
+/* Tailwind ships z-50 as highest. Header needs z-60 to stay above the popup. */
+.z-60 { z-index: 60; }
+
+/* ── Hero text-shadow helpers ─────────────────────────────────────────────── */
+.hero-shadow {
+  text-shadow:
+    0 2px 12px rgba(0, 0, 0, 0.55),
+    0 1px  4px rgba(0, 0, 0, 0.40);
+}
+.hero-shadow-sm {
+  text-shadow:
+    0 1px  8px rgba(0, 0, 0, 0.50),
+    0 1px  3px rgba(0, 0, 0, 0.35);
 }
 
-.font-script {
-  font-family: 'Cormorant Garamond', Georgia, serif;
+/* ── Nav link text shadow on transparent header ───────────────────────────── */
+.nav-shadow {
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.45);
 }

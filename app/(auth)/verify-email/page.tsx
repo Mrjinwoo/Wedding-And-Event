@@ -26,9 +26,9 @@ function VerifyEmailForm() {
   const searchParams = useSearchParams();
 
   // ?email=  pre-fills the address coming from the signup redirect
-  // ?next=   where to go after verification (default /dashboard)
+  // ?next=   optional destination after verification (defaults to the homepage)
   const prefillEmail = searchParams.get("email") ?? "";
-  const nextPath = searchParams.get("next") ?? "/dashboard";
+  const nextPath = searchParams.get("next") ?? "/";
 
   // ── State ──
   const [step, setStep] = useState<"email" | "code">(
