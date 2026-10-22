@@ -28,5 +28,7 @@ export async function GET(
     return NextResponse.json({ error: 'Could not load availability.' }, { status: 503 })
   }
 
-  return NextResponse.json({ unavailableDates: (data ?? []).map(row => row.event_date) })
+  return NextResponse.json({
+    unavailableDates: (data ?? []).map((row: { event_date: string }) => row.event_date),
+  })
 }
