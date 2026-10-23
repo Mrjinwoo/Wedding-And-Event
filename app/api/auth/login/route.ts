@@ -115,7 +115,14 @@ export async function POST(req: NextRequest) {
     const stepToken = createStepToken(email)
 
     return NextResponse.json({ otpSent: true, stepToken })
-  } catch {
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  } 
+  } catch (error) {
+    console.error('[login] Unexpected error:', error)
+
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    )
   }
+
 }
