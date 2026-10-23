@@ -31,10 +31,13 @@ export async function POST(req: NextRequest) {
 
   const supabase = await createClient()
   const { data: booking, error: bookingError } = await supabase.from('bookings')
-    .select('id').eq('id', bookingId).eq('user_id', auth.user.id)
+    .select('id, payment_deadline').eq('id', bookingId).eq('user_id', auth.user.id)
     .eq('status', 'awaiting_payment').in('payment_proof_status', ['not_submitted', 'rejected']).single()
   if (bookingError || !booking) {
     return NextResponse.json({ error: 'This booking cannot accept a receipt. Refresh your bookings and try again.' }, { status: 409 })
+  }
+  if (!booking.payment_deadline || new Date(booking.payment_deadline).getTime() <= Date.now()) {
+    return NextResponse.json({ error: 'The payment deadline has passed. Contact the venue to continue.' }, { status: 409 })
   }
 
   const path = `${auth.user.id}/${bookingId}/${crypto.randomUUID()}.${MIME_EXTENSIONS[proof.type]}`
@@ -50,6 +53,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (uploadError) {
+    console.error('[payment-proof] Storage upload failed:', uploadError.message)
     return NextResponse.json({ error: 'Could not upload the receipt. Please try again.' }, { status: 500 })
   }
 
@@ -66,6 +70,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (submitError) {
+    console.error('[payment-proof] Receipt submission RPC failed:', submitError.message)
     const { error: cleanupError } = await supabase.storage.from('booking-payment-proofs').remove([path])
     if (cleanupError) console.error('[payment-proof] Failed to clean up an unsubmitted receipt:', cleanupError.message)
     return NextResponse.json({ error: 'The receipt was not submitted. Your selected file is still available; please try again.' }, { status: 400 })

@@ -44,8 +44,12 @@ export default function MessagesPage() {
 
   async function loadMessages() {
     const res = await fetch("/api/messages");
-    const json = await res.json();
-    if (json.data) {
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setMessages([]);
+      setError(json.error ?? `Could not load messages (HTTP ${res.status}).`);
+    } else if (Array.isArray(json.data)) {
+      setError("");
       setMessages(json.data);
       const latestVenueMessage = [...json.data].reverse().find((message: Message) => message.venue_id);
       setConversationVenueId(latestVenueMessage?.venue_id ?? null);
@@ -61,6 +65,9 @@ export default function MessagesPage() {
       const a = await adminRes.json();
       setAdminId(a.adminId);
       setMyId(a.myId);
+    } else if (adminRes) {
+      const a = await adminRes.json().catch(() => ({}));
+      setError(a.error ?? `Could not connect to the venue team (HTTP ${adminRes.status}).`);
     }
   }
 

@@ -15,7 +15,13 @@ export async function GET(req: NextRequest) {
 
   let query = supabase
     .from('messages')
-    .select(`*, sender:sender_id(full_name, avatar_url), receiver:receiver_id(full_name, avatar_url), venue:venue_id(name), package:package_id(name)`)
+    .select(`
+      *,
+      sender:profiles!messages_sender_id_fkey(full_name),
+      receiver:profiles!messages_receiver_id_fkey(full_name),
+      venue:venues!messages_venue_id_fkey(name),
+      package:packages!messages_package_id_fkey(name)
+    `)
     .order('created_at', { ascending: true })
 
   if (isStaff && withUserId) {
@@ -31,7 +37,10 @@ export async function GET(req: NextRequest) {
   }
 
   const { data, error } = await query
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error) {
+    console.error('[messages] Failed to load messages:', error.message)
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
 
   await supabase.from('messages').update({ is_read: true })
     .eq('receiver_id', auth.user.id).eq('is_read', false)

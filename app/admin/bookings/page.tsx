@@ -35,14 +35,25 @@ export default function AdminBookingsPage() {
 
   const loadBookings = useCallback(async () => {
     setLoading(true);
+    setError("");
     const params = new URLSearchParams({ page: String(page), limit: "10" });
     if (status) params.set("status", status);
     if (search) params.set("search", search);
-    const res = await fetch(`/api/admin/bookings?${params}`);
-    const json = await res.json();
-    setBookings(json.data ?? []);
-    setTotal(json.total ?? 0);
-    setLoading(false);
+    try {
+      const res = await fetch(`/api/admin/bookings?${params}`);
+      const json = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(json?.error ?? `Could not load bookings (HTTP ${res.status}).`);
+      }
+      setBookings(Array.isArray(json?.data) ? json.data : []);
+      setTotal(typeof json?.total === "number" ? json.total : 0);
+    } catch (loadError) {
+      setBookings([]);
+      setTotal(0);
+      setError(loadError instanceof Error ? loadError.message : "Could not load bookings.");
+    } finally {
+      setLoading(false);
+    }
   }, [page, status, search]);
 
   useEffect(() => { loadBookings(); }, [loadBookings]);

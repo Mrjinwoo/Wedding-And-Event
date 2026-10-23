@@ -42,17 +42,28 @@ export default function MFAEnrollPage() {
     setStage("loading");
     setError("");
     try {
-      // MFA is optional. Challenge accounts that already enrolled; send all
-      // other staff back to their requested page without showing a QR setup.
+      // AAL2 is required for sensitive admin actions, so accounts without a
+      // verified factor must be able to enroll here.
       const statusRes = await fetch("/api/auth/mfa/status");
       const statusJson = await statusRes.json();
       if (statusRes.ok && statusJson.factorId) {
         router.replace(`/admin/mfa/challenge?next=${encodeURIComponent(requestedNext())}`);
         return;
       }
-      router.replace(requestedNext());
+      const enrollRes = await fetch("/api/auth/mfa/enroll");
+      const enrollJson = await enrollRes.json();
+      if (!enrollRes.ok) {
+        setError(enrollJson.error ?? "Could not start authenticator setup.");
+        setStage("error");
+        return;
+      }
+      setFactorId(enrollJson.factorId);
+      setQrCode(enrollJson.qrCode);
+      setSecret(enrollJson.secret);
+      setStage("scan");
     } catch {
-      router.replace(requestedNext());
+      setError("Could not connect to start authenticator setup. Please try again.");
+      setStage("error");
     }
   }
 

@@ -170,11 +170,21 @@ export default function BookingsPage() {
 
   const loadBookings = useCallback(async () => {
     setLoading(true);
+    setError("");
     const params = filter ? `?status=${filter}` : "";
-    const res  = await fetch(`/api/bookings${params}`);
-    const json = await res.json();
-    setBookings(json.data ?? []);
-    setLoading(false);
+    try {
+      const res = await fetch(`/api/bookings${params}`);
+      const json = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(json?.error ?? `Could not load bookings (HTTP ${res.status}).`);
+      }
+      setBookings(Array.isArray(json?.data) ? json.data : []);
+    } catch (loadError) {
+      setBookings([]);
+      setError(loadError instanceof Error ? loadError.message : "Could not load bookings.");
+    } finally {
+      setLoading(false);
+    }
   }, [filter]);
 
   useEffect(() => { void loadBookings(); }, [loadBookings]);

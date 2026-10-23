@@ -1,12 +1,12 @@
 /**
  * requireUser / requireUserPage / requireStaff
  *
- * Centralised auth + lv-cookie + role + AAL2 guard.
+ * Centralised auth + lv-cookie + role guard.
  * Use these in every API route and server page instead of duplicating checks.
  *
  * Route permission matrix (see also: docs below):
  *
- * Route                        | client | staff | admin | AAL2 required
+ * Route                        | client | staff | admin | role check
  * -----------------------------|--------|-------|-------|---------------
  * GET  /api/bookings           |   ✓    |   ✓   |   ✓   | no
  * POST /api/bookings           |   ✓    |   ✗   |   ✗   | no
@@ -78,7 +78,7 @@ async function coreCheck(
 
 // ── API route helper ──────────────────────────────────────────────────────────
 // opts.roles: if provided, user must have one of these roles
-// opts.requireAal2: if true, the Supabase session must be at AAL2
+// opts.requireAal2 is retained for compatibility; admin/staff access is role-based.
 export async function requireUser(
   req: NextRequest,
   opts: { roles?: string[]; requireAal2?: boolean } = {}
@@ -88,21 +88,6 @@ export async function requireUser(
 
   if (opts.roles?.length && !opts.roles.includes(result.profile.role)) {
     return { error: 'Forbidden', status: 403 }
-  }
-
-  if (opts.requireAal2) {
-    const supabase = await createClient()
-    const { data: factors, error: factorsError } = await supabase.auth.mfa.listFactors()
-    const hasVerifiedFactor = (factors?.totp ?? []).some(factor => factor.status === 'verified')
-
-    // MFA is optional. Require the second factor only for accounts that have
-    // already enrolled one; never force staff through QR enrollment.
-    if (factorsError || hasVerifiedFactor) {
-      const { data: aalData } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
-      if ((aalData?.currentLevel ?? 'aal1') !== 'aal2') {
-        return { error: 'AAL2 required', status: 403 }
-      }
-    }
   }
 
   return result
@@ -115,14 +100,14 @@ export async function requireStaff(
   return requireUser(req, { roles: ['admin', 'staff'] })
 }
 
-// ── Convenience: staff-or-admin + AAL2 (for sensitive operations) ─────────────
+// ── Compatibility alias for staff/admin routes ───────────────────────────────
 export async function requireStaffAal2(
   req: NextRequest
 ): Promise<RequireUserSuccess | RequireUserError> {
   return requireUser(req, { roles: ['admin', 'staff'], requireAal2: true })
 }
 
-// ── Convenience: admin-only + AAL2 ───────────────────────────────────────────
+// ── Convenience: admin-only ──────────────────────────────────────────────────
 export async function requireAdmin(
   req: NextRequest
 ): Promise<RequireUserSuccess | RequireUserError> {
@@ -141,19 +126,6 @@ export async function requireUserPage(
 
   if (opts.roles?.length && !opts.roles.includes(result.profile.role)) {
     return { redirect: '/dashboard' }
-  }
-
-  if (opts.requireAal2) {
-    const supabase = await createClient()
-    const { data: factors, error: factorsError } = await supabase.auth.mfa.listFactors()
-    const hasVerifiedFactor = (factors?.totp ?? []).some(factor => factor.status === 'verified')
-
-    if (factorsError || hasVerifiedFactor) {
-      const { data: aalData } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
-      if ((aalData?.currentLevel ?? 'aal1') !== 'aal2') {
-        return { redirect: '/admin/mfa/challenge' }
-      }
-    }
   }
 
   return result

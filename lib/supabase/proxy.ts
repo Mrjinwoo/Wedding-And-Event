@@ -43,15 +43,8 @@ const PROTECTED_PREFIXES = [
   '/api/reports',
 ]
 
-// Require staff or admin role (AAL2 enforced separately below)
+// Require staff or admin role on management routes.
 const STAFF_PREFIXES = ['/admin', '/api/admin', '/api/reports']
-
-// These /admin/* pages are reachable at AAL1 (they ARE the MFA flow).
-// They still require lv + getUser() — just not AAL2.
-const MFA_EXEMPT_PAGES = [
-  '/admin/mfa/enroll',
-  '/admin/mfa/challenge',
-]
 
 // Auth pages: redirect logged-in users away
 // Keep reset-password reachable even for an existing session. A signed-in
@@ -124,8 +117,11 @@ export async function updateSession(request: NextRequest) {
     }
   }
 
-  // ── 6. Staff/admin routes: role + AAL2 ──────────────────────────────────────
-  if (user && STAFF_PREFIXES.some(p => path.startsWith(p))) {
+  // ── 6. Staff/admin routes: role check ───────────────────────────────────────
+  // Authenticated customers need the active admin ID to start a conversation.
+  // The endpoint enforces login itself and only returns the venue admin ID.
+  const isAdminIdLookup = path === '/api/admin/id'
+  if (user && STAFF_PREFIXES.some(p => path.startsWith(p)) && !isAdminIdLookup) {
     // 6a. Fetch role from profiles (not user_metadata)
     const { data: profile } = await supabase
       .from('profiles').select('role').eq('id', user.id).single()
@@ -137,33 +133,6 @@ export async function updateSession(request: NextRequest) {
       return isApiRoute ? apiForbidden() : redirectTo(request, '/dashboard')
     }
 
-    // MFA pages: lv + role already checked above; AAL2 not required here
-    const isMfaPage = MFA_EXEMPT_PAGES.some(p => path.startsWith(p))
-    if (isMfaPage) return supabaseResponse
-
-    // 6b. Check MFA factors — if none enrolled, skip AAL2 requirement
-    // This allows admin/staff to access the dashboard without TOTP when
-    // no factor has been set up yet (graceful degradation for new accounts)
-    const { data: factors } = await supabase.auth.mfa.listFactors()
-    const hasVerifiedFactor = (factors?.totp ?? []).some(f => f.status === 'verified')
-
-    if (!hasVerifiedFactor) {
-      // No factor enrolled — let them through to the dashboard
-      // They will see the enroll prompt there instead of being hard-blocked
-      return supabaseResponse
-    }
-
-    // 6c. Factor enrolled — check AAL level
-    const { data: aalData } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
-    const currentLevel = aalData?.currentLevel ?? 'aal1'
-    const nextLevel    = aalData?.nextLevel    ?? 'aal1'
-
-    const needsChallenge = nextLevel === 'aal2' && currentLevel !== 'aal2'
-
-    if (needsChallenge) {
-      if (isApiRoute) return apiForbidden('AAL2 required')
-      return redirectTo(request, '/admin/mfa/challenge', { next: path })
-    }
   }
 
   return supabaseResponse

@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { logActivity, logAudit } from '@/lib/activity'
-import { requireStaff, requireAdmin } from '@/lib/supabase/requireUser'
+import { requireStaff, requireAdmin, requireUser } from '@/lib/supabase/requireUser'
 import { attachUserProfiles, expireOverdueBookings } from '@/lib/bookings'
 
 // Permission matrix:
 //   GET    — staff + admin, AAL2
-//   PATCH  — admin only,    AAL2
+//   PATCH  — admin only; payment proof review does not require AAL2
 //   DELETE — admin only,    AAL2
 
 export async function GET(req: NextRequest) {
@@ -39,8 +39,10 @@ export async function GET(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  const auth = await requireAdmin(req)
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
+  // Receipt review is admin-only but does not require MFA. Other booking
+  // management changes continue to require an AAL2 session.
+  const roleAuth = await requireUser(req, { roles: ['admin'] })
+  if ('error' in roleAuth) return NextResponse.json({ error: roleAuth.error }, { status: roleAuth.status })
 
   const supabase = await createClient()
   const { bookingId, status, paymentDecision } = await req.json()
@@ -55,6 +57,9 @@ export async function PATCH(req: NextRequest) {
     if (error) return NextResponse.json({ error: error.message }, { status: 400 })
     return NextResponse.json({ message: paymentDecision === 'approve' ? 'Payment verified and booking confirmed.' : 'Payment proof rejected.' })
   }
+
+  const auth = await requireAdmin(req)
+  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const VALID = ['awaiting_payment', 'confirmed', 'cancelled', 'completed'] as const
   if (!bookingId || !VALID.includes(status)) {
