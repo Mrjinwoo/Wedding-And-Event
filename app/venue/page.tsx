@@ -1,6 +1,7 @@
 import Image from 'next/image'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
+import VenueCategoryPills from './VenueCategoryPills'
 
 type Venue = {
   id: string
@@ -15,10 +16,13 @@ type Venue = {
 export default async function VenuePage({
   searchParams,
 }: {
-  searchParams: Promise<{ packageId?: string | string[] }>
+  searchParams: Promise<{ packageId?: string | string[]; category?: string | string[] }>
 }) {
   const query = await searchParams
   const packageId = typeof query.packageId === 'string' ? query.packageId : ''
+  const allowedCategories = ['wedding', 'reception', 'birthday', 'corporate']
+  const requestedCategory = typeof query.category === 'string' ? query.category : 'all'
+  const category = allowedCategories.includes(requestedCategory) ? requestedCategory : 'all'
   const supabase = await createClient()
 
   // Determine the current user's role
@@ -31,12 +35,13 @@ export default async function VenuePage({
   }
   const isStaff = role === 'admin' || role === 'staff'
 
-  const { data: venues } = await supabase
+  let venuesQuery = supabase
     .from('venues')
-    .select('id, name, location, capacity, price, image_url, description')
+    .select('id, name, location, capacity, price, image_url, description, category')
     .eq('is_active', true)
     .eq('review_status', 'approved')
-    .order('created_at', { ascending: false })
+  if (category !== 'all') venuesQuery = venuesQuery.eq('category', category)
+  const { data: venues } = await venuesQuery.order('created_at', { ascending: false })
 
   const items: Venue[] = venues ?? []
 
@@ -63,6 +68,7 @@ export default async function VenuePage({
 
       {/* Venue grid */}
       <section className="max-w-7xl mx-auto px-6 py-14">
+        <VenueCategoryPills selected={category} packageId={packageId} />
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
           {items.map(venue => {
             const img      = venue.image_url ?? '/back.jpg'
@@ -80,6 +86,7 @@ export default async function VenuePage({
                     src={img}
                     alt={venue.name}
                     fill
+                    unoptimized
                     sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
                     className="object-cover transition-transform duration-300 group-hover:scale-105"
                   />
@@ -147,7 +154,14 @@ export default async function VenuePage({
           })}
         </div>
 
-        {items.length === 0 && (
+        {items.length === 0 && category !== 'all' && (
+          <div className="mt-4 rounded-2xl border border-dashed border-gray-200 bg-white px-6 py-14 text-center">
+            <p className="font-display text-xl font-semibold text-[#1a1a1a]">No {category} venues yet</p>
+            <p className="mt-2 text-sm text-gray-500">Choose another event type to see available spaces.</p>
+          </div>
+        )}
+
+        {items.length === 0 && category === 'all' && (
           <div className="mt-4 rounded-2xl border border-dashed border-gray-200 bg-white px-6 py-14 text-center">
             <p className="font-display text-xl font-semibold text-[#1a1a1a]">New venues are on the way</p>
             <p className="mt-2 text-sm text-gray-500">There are no published venues available to browse right now. Please check back soon.</p>

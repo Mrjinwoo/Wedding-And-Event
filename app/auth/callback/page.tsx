@@ -12,6 +12,7 @@ function safeNext(raw: string | null, fallback: string): string {
 export default function AuthCallbackPage() {
   const started = useRef(false);
   const [error, setError] = useState("");
+  const [awaitingConfirmation, setAwaitingConfirmation] = useState(false);
 
   useEffect(() => {
     if (started.current) return;
@@ -40,6 +41,13 @@ export default function AuthCallbackPage() {
       const accessToken = fragment.get("access_token");
       const refreshToken = fragment.get("refresh_token");
 
+      // Keep one-time invite/recovery tokens out of the verification request
+      // until the recipient clicks. Email scanners often prefetch links.
+      if (tokenHash && (type === "invite" || type === "recovery") && url.searchParams.get("confirmed") !== "1") {
+        setAwaitingConfirmation(true);
+        return;
+      }
+
       if (tokenHash && type) {
         const result = await supabase.auth.verifyOtp({ token_hash: tokenHash, type });
         authError = result.error;
@@ -57,8 +65,15 @@ export default function AuthCallbackPage() {
       }
 
       if (authError) {
-        console.error("[auth/callback] Could not complete email authentication:", authError.message);
-        setError("This link is invalid, expired, or already used. Request a fresh email link and try again.");
+        // Invalid/expired email links are an expected user-facing condition.
+        // Logging them as errors triggers Next.js's dev error overlay and
+        // obscures the recovery instructions rendered below.
+        console.warn("[auth/callback] Could not complete email authentication:", authError.message);
+        if (authError.message.toLowerCase().includes("code verifier not found")) {
+          setError("This email link was opened in a browser that does not have the verification session. Request a fresh link and open it in the same browser where you started. If this is a staff invitation or password reset, the Supabase email template should use the token-hash link format.");
+        } else {
+          setError("This link is invalid, expired, or already used. Request a fresh email link and try again.");
+        }
         return;
       }
 
@@ -73,6 +88,12 @@ export default function AuthCallbackPage() {
     });
   }, []);
 
+  function continueVerification() {
+    const url = new URL(window.location.href);
+    url.searchParams.set("confirmed", "1");
+    window.location.replace(url.toString());
+  }
+
   return (
     <main className="flex min-h-screen flex-col items-center justify-center bg-[#FAF7F5] px-6 text-center">
       {error ? (
@@ -82,6 +103,14 @@ export default function AuthCallbackPage() {
           <Link href="/login" className="mt-6 inline-block rounded-lg bg-[#9B2C4A] px-5 py-2.5 text-sm font-semibold text-white">
             Return to login
           </Link>
+        </section>
+      ) : awaitingConfirmation ? (
+        <section className="max-w-md rounded-2xl bg-white p-8 shadow-sm">
+          <h1 className="font-display text-xl font-bold text-[#1a1a1a]">Finish setting up your account</h1>
+          <p className="mt-3 text-sm text-gray-600">Continue to verify this link and choose your password.</p>
+          <button onClick={continueVerification} className="mt-6 rounded-lg bg-[#9B2C4A] px-5 py-2.5 text-sm font-semibold text-white">
+            Continue
+          </button>
         </section>
       ) : (
         <div role="status" className="flex flex-col items-center gap-4 text-gray-600">

@@ -72,6 +72,7 @@ export const inquirySchema = z.object({
 
 export const venueSchema = z.object({
   name: z.string().min(2).max(100),
+  category: z.enum(['wedding', 'reception', 'birthday', 'corporate', 'other']).default('other'),
   description: z.string().max(500).optional(),
   location: z.string().min(2).max(200),
   capacity: z.number().int().min(1),

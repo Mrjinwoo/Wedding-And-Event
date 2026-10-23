@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
+import Image from 'next/image'
 import LogoutButton from '@/components/LogoutButton'
 import { createClient } from '@/lib/supabase/server'
 import { requireUserPage } from '@/lib/supabase/requireUser'
@@ -18,6 +19,7 @@ export default async function DashboardPage() {
   // Fetch user data in parallel
   const [
     { data: bookings },
+    { data: availableVenues },
     { data: messages },
     { data: notifications },    { data: activity },
   ] = await Promise.all([
@@ -26,6 +28,12 @@ export default async function DashboardPage() {
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
       .limit(5),
+    supabase.from('venues')
+      .select('id, name, location, capacity, price, image_url, description')
+      .eq('is_active', true)
+      .eq('review_status', 'approved')
+      .order('created_at', { ascending: false })
+      .limit(3),
     supabase.from('messages')
       .select('*, sender:sender_id(full_name)')
       .eq('receiver_id', user.id)
@@ -83,6 +91,43 @@ export default async function DashboardPage() {
             </div>
           ))}
         </div>
+
+        {/* Available venues */}
+        <section className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+          <div className="flex items-center justify-between gap-4 border-b border-gray-100 px-5 py-4 sm:px-6">
+            <div>
+              <h2 className="font-display text-base font-semibold text-[#1a1a1a]">Available Venues</h2>
+              <p className="mt-1 text-xs text-gray-500">Explore spaces for your next event.</p>
+            </div>
+            <Link href="/venue" className="shrink-0 text-xs font-medium text-[#9B2C4A] hover:underline">Browse all</Link>
+          </div>
+          {availableVenues?.length ? (
+            <div className="grid gap-4 p-5 sm:grid-cols-2 lg:grid-cols-3 sm:p-6">
+              {availableVenues.map(venue => (
+                <Link key={venue.id} href={`/venue/${venue.id}`} className="group overflow-hidden rounded-xl border border-gray-100 transition hover:-translate-y-0.5 hover:shadow-md">
+                  <div className="relative h-40 bg-[#F5E6EA]">
+                    <Image src={venue.image_url || '/back.jpg'} alt={venue.name} fill unoptimized
+                      sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+                      className="object-cover transition-transform duration-300 group-hover:scale-105" />
+                    <span className="absolute right-3 top-3 rounded-full bg-white/95 px-3 py-1 text-xs font-bold text-[#9B2C4A]">
+                      PHP {Number(venue.price).toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="p-4">
+                    <h3 className="truncate font-display text-lg font-semibold text-[#1a1a1a]">{venue.name}</h3>
+                    <p className="mt-1 truncate text-xs text-gray-500">{venue.location}</p>
+                    <p className="mt-3 text-xs font-medium text-[#9B2C4A]">Up to {venue.capacity} guests · View venue →</p>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <div className="px-6 py-9 text-center">
+              <p className="text-sm text-gray-500">No published venues are available yet.</p>
+              <Link href="/venue" className="mt-2 inline-block text-sm font-medium text-[#9B2C4A] hover:underline">Check the venue list</Link>
+            </div>
+          )}
+        </section>
 
         {/* Notifications */}
         {notifications && notifications.length > 0 && (

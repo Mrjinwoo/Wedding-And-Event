@@ -58,10 +58,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 })
   }
 
-  const { name, description, location, capacity, price, imageUrl, isActive } = parsed.data
+  const { name, category, description, location, capacity, price, imageUrl, isActive } = parsed.data
   const isAdmin = auth.profile.role === 'admin'
   const { data, error } = await supabase.from('venues').insert({
-    name, description, location, capacity, price,
+    name, category, description, location, capacity, price,
     image_url: imageUrl,
     is_active: isAdmin ? isActive : false,
     review_status: isAdmin && isActive ? 'approved' : 'pending_review',
@@ -112,6 +112,7 @@ export async function PATCH(req: NextRequest) {
   } else {
     const parsed = venueSchema.safeParse({
       name: body.name,
+      category: body.category,
       description: body.description,
       location: body.location,
       capacity: body.capacity,
@@ -122,9 +123,9 @@ export async function PATCH(req: NextRequest) {
     if (!parsed.success) {
       return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 })
     }
-    const { name, description, location, capacity, price, imageUrl: validatedImage, isActive: validatedActive } = parsed.data
+    const { name, category, description, location, capacity, price, imageUrl: validatedImage, isActive: validatedActive } = parsed.data
     Object.assign(updates, {
-      name, description, location, capacity, price,
+      name, category, description, location, capacity, price,
       image_url: validatedImage,
       ...(isAdmin ? { is_active: validatedActive } : { is_active: false, review_status: 'pending_review' }),
     })

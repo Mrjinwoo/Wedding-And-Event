@@ -279,7 +279,7 @@ function BookVerifyForm() {
 
       {/* ── Right: image panel ── */}
       <div className="hidden md:flex md:w-1/2 relative">
-        <Image src="/wed.jpg" alt="Wedding venue" fill className="object-cover" priority />
+        <Image src="/wed.jpg" alt="Wedding venue" fill sizes="50vw" className="object-cover" priority />
         <div className="absolute inset-0 bg-gradient-to-br from-[#9B2C4A]/60 to-[#1a1a1a]/40" />
         <div className="absolute inset-0 flex flex-col items-center justify-center text-white px-12 text-center">
           <p className="font-script text-4xl italic mb-3">Almost there</p>

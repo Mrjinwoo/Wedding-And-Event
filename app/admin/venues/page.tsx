@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/client";
 type Venue = {
   id: string;
   name: string;
+  category: "wedding" | "reception" | "birthday" | "corporate" | "other";
   location: string;
   capacity: number;
   price: number;
@@ -17,10 +18,10 @@ type Venue = {
   description: string | null;
 };
 
-type VenueForm = Pick<Venue, "name" | "location" | "capacity" | "price" | "image_url" | "description" | "is_active">;
+type VenueForm = Pick<Venue, "name" | "category" | "location" | "capacity" | "price" | "image_url" | "description" | "is_active">;
 
 const EMPTY: VenueForm = {
-  name: "", location: "", capacity: 0, price: 0,
+  name: "", category: "wedding", location: "", capacity: 0, price: 0,
   image_url: "", description: "", is_active: true,
 };
 
@@ -77,7 +78,7 @@ export default function AdminVenuesPage() {
 
   function openEdit(v: Venue) {
     setForm({
-      name: v.name, location: v.location, capacity: v.capacity,
+      name: v.name, category: v.category ?? "other", location: v.location, capacity: v.capacity,
       price: v.price, image_url: v.image_url ?? "",
       description: v.description ?? "", is_active: v.is_active,
     });
@@ -143,6 +144,7 @@ export default function AdminVenuesPage() {
     const payload = {
       ...(editId ? { id: editId } : {}),
       name:        form.name,
+      category:    form.category,
       location:    form.location,
       description: form.description,
       capacity:    form.capacity,
@@ -281,6 +283,26 @@ export default function AdminVenuesPage() {
                     className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#9B2C4A]" />
                 </div>
 
+                {/* Venue type */}
+                <fieldset>
+                  <legend className="mb-2 block text-xs font-medium text-gray-600">Venue Type *</legend>
+                  <div className="flex flex-wrap gap-2">
+                    {([
+                      ["wedding", "Weddings"],
+                      ["reception", "Receptions"],
+                      ["birthday", "Birthdays"],
+                      ["corporate", "Corporate"],
+                      ["other", "Other events"],
+                    ] as const).map(([value, label]) => (
+                      <button key={value} type="button" aria-pressed={form.category === value}
+                        onClick={() => setForm(p => ({ ...p, category: value }))}
+                        className={`rounded-full border px-3.5 py-2 text-xs font-medium transition ${form.category === value ? "border-[#9B2C4A] bg-[#9B2C4A] text-white" : "border-[#eadde0] bg-white text-[#55464a] hover:border-[#9B2C4A] hover:text-[#9B2C4A]"}`}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </fieldset>
+
                 {/* Description */}
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Description</label>
@@ -318,7 +340,7 @@ export default function AdminVenuesPage() {
                         fill
                         sizes="400px"
                         className="object-cover"
-                        unoptimized={imagePreview.startsWith("blob:")}
+                        unoptimized
                       />
                       <button
                         type="button"
@@ -420,7 +442,7 @@ export default function AdminVenuesPage() {
                 className={`bg-white rounded-2xl shadow-sm border overflow-hidden ${v.review_status !== "approved" || !v.is_active ? "border-amber-200" : "border-gray-100"}`}>
                 <div className="relative h-44 bg-gray-100">
                   {v.image_url ? (
-                    <Image src={v.image_url} alt={v.name} fill sizes="33vw" className="object-cover" />
+                    <Image src={v.image_url} alt={v.name} fill unoptimized sizes="33vw" className="object-cover" />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-gray-300 text-4xl">🏛️</div>
                   )}

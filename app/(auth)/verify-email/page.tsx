@@ -286,6 +286,7 @@ function VerifyEmailForm() {
           src="/wed.jpg"
           alt="Wedding venue"
           fill
+          sizes="50vw"
           className="object-cover"
           priority
         />

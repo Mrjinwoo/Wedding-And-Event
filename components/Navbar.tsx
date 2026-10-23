@@ -19,7 +19,7 @@ const NAV_LINKS = [
 
 const AUTH_PAGES = [
   "/login", "/signup", "/forgot-password",
-  "/reset-password", "/verify-email", "/book/verify",
+  "/reset-password", "/verify-email", "/book/verify", "/auth/callback",
   "/admin", "/dashboard",
 ];
 

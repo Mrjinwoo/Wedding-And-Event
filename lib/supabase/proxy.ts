@@ -54,7 +54,9 @@ const MFA_EXEMPT_PAGES = [
 ]
 
 // Auth pages: redirect logged-in users away
-const AUTH_PAGES = ['/login', '/signup', '/forgot-password', '/reset-password']
+// Keep reset-password reachable even for an existing session. A signed-in
+// admin may be resetting their password and must not be redirected to /admin.
+const AUTH_PAGES = ['/login', '/signup', '/forgot-password']
 
 // ── Main middleware ───────────────────────────────────────────────────────────
 export async function updateSession(request: NextRequest) {

@@ -24,12 +24,6 @@ function statusStyle(status: string) {
   return 'bg-green-50 text-green-800 ring-green-200'
 }
 
-function venueName(relation: unknown): string | null {
-  const venue = Array.isArray(relation) ? relation[0] : relation
-  if (typeof venue !== 'object' || venue === null || !('name' in venue)) return null
-  return typeof venue.name === 'string' ? venue.name : null
-}
-
 export default async function AdminPage() {
   const result = await requireUserPage({ roles: ['admin', 'staff'] })
   if ('redirect' in result) redirect(result.redirect)
@@ -147,7 +141,7 @@ export default async function AdminPage() {
                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#F8EEF0] text-xs font-bold text-[#A83152]">{booking.status === 'pending' ? 'NEW' : 'PAY'}</div>
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-semibold text-[#292523]">{booking.event_type} <span className="font-normal text-[#8C8580]">· {booking.profiles?.full_name ?? 'Customer'}</span></p>
-                      <p className="mt-1 truncate text-xs text-[#928A85]">{venueName(booking.venues) ?? 'Venue'} · Event {formatDate(booking.event_date)}</p>
+                      <p className="mt-1 truncate text-xs text-[#928A85]">{(booking.venues as { name: string } | null)?.name ?? 'Venue'} · Event {formatDate(booking.event_date)}</p>
                     </div>
                     <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-semibold capitalize ring-1 ${statusStyle(booking.status)}`}>{booking.status.replaceAll('_', ' ')}</span>
                   </Link>
@@ -173,7 +167,7 @@ export default async function AdminPage() {
                     </div>
                     <div className="min-w-0 py-0.5">
                       <p className="truncate text-sm font-semibold text-[#292523]">{event.event_type}</p>
-                      <p className="mt-1 truncate text-xs text-[#928A85]">{venueName(event.venues) ?? 'Venue'} · {event.profiles?.full_name ?? 'Customer'}</p>
+                      <p className="mt-1 truncate text-xs text-[#928A85]">{(event.venues as { name: string } | null)?.name ?? 'Venue'} · {event.profiles?.full_name ?? 'Customer'}</p>
                     </div>
                   </div>
                 ))}

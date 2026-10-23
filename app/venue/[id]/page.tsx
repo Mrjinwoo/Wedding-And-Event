@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation'
 import Image from 'next/image'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
+import ReviewForm from './ReviewForm'
 
 interface Props {
   params: Promise<{ id: string }>
@@ -35,6 +36,14 @@ export default async function VenueDetailPage({ params, searchParams }: Props) {
   }
 
   const isStaff = role === 'admin' || role === 'staff'
+  const [{ data: reviews }, { data: priorReview }, { data: eligibleBooking }] = await Promise.all([
+    supabase.from('venue_reviews').select('id, rating, comment, created_at, user_id').eq('venue_id', id).order('created_at', { ascending: false }),
+    user ? supabase.from('venue_reviews').select('id').eq('venue_id', id).eq('user_id', user.id).maybeSingle() : Promise.resolve({ data: null }),
+    user && role === 'client'
+      ? supabase.from('bookings').select('id').eq('venue_id', id).eq('user_id', user.id).eq('status', 'confirmed').lt('event_date', new Date().toISOString().slice(0, 10)).limit(1).maybeSingle()
+      : Promise.resolve({ data: null }),
+  ])
+  const averageRating = reviews?.length ? reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length : 0
 
   return (
     <main className="min-h-screen bg-[#FAF7F5]">
@@ -46,6 +55,7 @@ export default async function VenueDetailPage({ params, searchParams }: Props) {
             src={venue.image_url}
             alt={venue.name}
             fill
+            unoptimized
             sizes="100vw"
             className="object-cover object-center"
             priority
@@ -109,6 +119,26 @@ export default async function VenueDetailPage({ params, searchParams }: Props) {
               {venue.description ?? 'A beautiful venue perfect for your special occasion. Contact us for more details.'}
             </p>
           </div>
+
+          <section className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6" aria-labelledby="reviews-heading">
+            <div className="flex flex-wrap items-end justify-between gap-2">
+              <div>
+                <h2 id="reviews-heading" className="font-display text-xl font-bold text-[#1a1a1a]">Customer Reviews</h2>
+                <p className="mt-1 text-sm text-gray-500">{reviews?.length ? `${averageRating.toFixed(1)} out of 5 · ${reviews.length} ${reviews.length === 1 ? 'review' : 'reviews'}` : 'No reviews yet'}</p>
+              </div>
+              {reviews?.length ? <span className="text-amber-500" aria-label={`${averageRating.toFixed(1)} out of 5 stars`}>{'★'.repeat(Math.round(averageRating))}{'☆'.repeat(5 - Math.round(averageRating))}</span> : null}
+            </div>
+            {eligibleBooking && !priorReview && <ReviewForm venueId={id} />}
+            {user && role === 'client' && !eligibleBooking && !priorReview && <p className="mt-4 text-sm text-gray-500">Customers with a past confirmed booking can leave a review after their event.</p>}
+            {priorReview && <p className="mt-4 text-sm text-gray-500">You have already reviewed this venue.</p>}
+            {!user && <p className="mt-4 text-sm text-gray-500"><Link className="font-semibold text-[#9B2C4A] hover:underline" href={`/login?redirect=${encodeURIComponent(`/venue/${id}`)}`}>Sign in</Link> after a confirmed event to leave a review.</p>}
+            <div className="mt-5 divide-y divide-gray-100">
+              {reviews?.map(review => <article key={review.id} className="py-4 first:pt-0">
+                <div className="flex items-center justify-between gap-3"><span className="text-amber-500" aria-label={`${review.rating} out of 5 stars`}>{'★'.repeat(review.rating)}{'☆'.repeat(5 - review.rating)}</span><time className="text-xs text-gray-400" dateTime={review.created_at}>{new Date(review.created_at).toLocaleDateString()}</time></div>
+                <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-gray-600">{review.comment}</p>
+              </article>)}
+            </div>
+          </section>
 
           {/* Highlights */}
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">

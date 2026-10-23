@@ -3,6 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
+import { createClient } from "@/lib/supabase/client";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
@@ -16,13 +17,24 @@ export default function ForgotPasswordPage() {
     if (!email) { setError("Please enter your email."); return; }
     setLoading(true);
     try {
-      const res = await fetch("/api/auth/forgot-password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
+      // Start the recovery flow in the browser so Supabase SSR stores its
+      // PKCE verifier in this browser's cookies. The callback then has the
+      // verifier when the user opens a code-based recovery link.
+      const supabase = createClient();
+      const redirectTo = new URL(
+        "/api/auth/callback?next=%2Freset-password",
+        window.location.origin,
+      ).toString();
+      const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo,
       });
-      const json = await res.json();
-      if (!res.ok) { setError(json.error); return; }
+
+      // Keep the same response for existing and unknown accounts.
+      if (resetError) {
+        console.warn("[forgot-password] Reset email request failed:", resetError.message);
+        setError("We couldn't send the reset email. Please try again in a moment.");
+        return;
+      }
       setSent(true);
     } catch {
       setError("Something went wrong. Please try again.");

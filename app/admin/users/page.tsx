@@ -46,41 +46,52 @@ export default function AdminUsersPage() {
 
   const loadUsers = useCallback(async () => {
     setLoading(true);
-    const params = new URLSearchParams({ page: String(page), limit: "10" });
-    if (search) params.set("search", search);
-    if (role) params.set("role", role);
-    const res = await fetch(`/api/admin/users?${params}`);
-    const json = await res.json();
-    if (res.status === 403 && json.error === "AAL2 required") {
-      await goToMfa();
-      setLoading(false);
-      return;
-    }
-    if (!res.ok) {
-      setError(json.error ?? "Could not load users.");
-      setLoading(false);
-      return;
-    }
     setError("");
-    setUsers(json.data ?? []);
-    setTotal(json.total ?? 0);
-    setLoading(false);
+    try {
+      const params = new URLSearchParams({ page: String(page), limit: "10" });
+      if (search) params.set("search", search);
+      if (role) params.set("role", role);
+      const res = await fetch(`/api/admin/users?${params}`);
+      const json = await res.json().catch(() => ({}));
+      if (res.status === 403 && json.error === "AAL2 required") {
+        await goToMfa();
+        return;
+      }
+      if (!res.ok) throw new Error(json.error ?? "Could not load users.");
+      setUsers(json.data ?? []);
+      setTotal(json.total ?? 0);
+    } catch (loadError) {
+      console.error("[admin users] Failed to load users:", loadError);
+      setError(loadError instanceof TypeError
+        ? "Could not connect to the users API. Check the deployment logs and try again."
+        : loadError instanceof Error ? loadError.message : "Could not load users.");
+    } finally {
+      setLoading(false);
+    }
   }, [page, search, role, goToMfa]);
 
   useEffect(() => { loadUsers(); }, [loadUsers]);
 
   async function updateUser(userId: string, updates: Record<string, unknown>) {
     setUpdating(userId); setError(""); setNotice("");
-    const res = await fetch("/api/admin/users", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId, ...updates }),
-    });
-    const json = await res.json();
-    if (res.status === 403 && json.error === "AAL2 required") await goToMfa();
-    else if (!res.ok) setError(json.error);
-    else loadUsers();
-    setUpdating(null);
+    try {
+      const res = await fetch("/api/admin/users", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, ...updates }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (res.status === 403 && json.error === "AAL2 required") await goToMfa();
+      else if (!res.ok) setError(json.error ?? "Could not update this user.");
+      else await loadUsers();
+    } catch (updateError) {
+      console.error("[admin users] Failed to update user:", updateError);
+      setError(updateError instanceof TypeError
+        ? "Could not connect to the users API. Check the deployment logs and try again."
+        : updateError instanceof Error ? updateError.message : "Could not update this user.");
+    } finally {
+      setUpdating(null);
+    }
   }
 
   async function inviteStaff(event: React.FormEvent<HTMLFormElement>) {
