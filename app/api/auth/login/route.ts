@@ -114,8 +114,8 @@ export async function POST(req: NextRequest) {
     // ── 5. Issue step token proving password was checked ─────────────────────
     const stepToken = createStepToken(email)
 
+   
     return NextResponse.json({ otpSent: true, stepToken })
-  } 
   } catch (error) {
     console.error('[login] Unexpected error:', error)
 
@@ -124,5 +124,5 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     )
   }
-
 }
+
