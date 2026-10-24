@@ -146,13 +146,15 @@ function BookingProgress({ booking, onHoldExpired }: { booking: Booking; onHoldE
           ? booking.status === "expired" ? "This request expired before the payment deadline." : "This booking request was cancelled."
           : activeDescription}
       </p>
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <button type="button" onClick={() => void resendUpdate()} disabled={retryingNotice}
-          className="text-xs font-semibold text-[#9B2C4A] underline disabled:opacity-50">
-          {retryingNotice ? "Resending…" : "Resend booking update"}
-        </button>
-        {noticeMessage && <span role="status" className="text-xs text-gray-600">{noticeMessage}</span>}
-      </div>
+      {!isTerminal && booking.status !== "completed" && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button type="button" onClick={() => void resendUpdate()} disabled={retryingNotice}
+            className="text-xs font-semibold text-[#9B2C4A] underline disabled:opacity-50">
+            {retryingNotice ? "Resending…" : "Resend booking update"}
+          </button>
+          {noticeMessage && <span role="status" className="text-xs text-gray-600">{noticeMessage}</span>}
+        </div>
+      )}
     </section>
   );
 }

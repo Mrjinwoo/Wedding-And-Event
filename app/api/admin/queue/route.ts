@@ -79,7 +79,7 @@ export async function GET(req: NextRequest) {
   }))
 
   return NextResponse.json({
-    canManageBookings: auth.profile.role === 'admin',
+    canManageBookings: auth.profile.role === 'admin' || auth.profile.role === 'staff',
     requests: { items: withVenue(requestsWithProfiles), count: requestCount ?? 0 },
     paymentReviews: { items: withVenue(paymentsWithProfiles), count: paymentReviewCount ?? 0 },
     overdueBookings: { items: withVenue(overdueWithProfiles), count: overdueCount ?? 0 },

@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { logActivity, logAudit } from '@/lib/activity'
-import { requireStaff, requireAdmin, requireUser } from '@/lib/supabase/requireUser'
+import { requireStaff, requireAdmin } from '@/lib/supabase/requireUser'
 import { attachUserProfiles, expireOverdueBookings } from '@/lib/bookings'
 
 // Permission matrix:
-//   GET    — staff + admin, AAL2
-//   PATCH  — admin only; payment proof review does not require AAL2
-//   DELETE — admin only,    AAL2
+//   GET    — active staff + admin
+//   PATCH  — active staff + admin for booking workflow actions
+//   DELETE — admin only
 
 export async function GET(req: NextRequest) {
   const auth = await requireStaff(req)
@@ -35,13 +35,19 @@ export async function GET(req: NextRequest) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   const dataWithProfiles = await attachUserProfiles(supabase, data)
-  return NextResponse.json({ data: dataWithProfiles, total: count, page, limit })
+  return NextResponse.json({
+    data: dataWithProfiles,
+    total: count,
+    page,
+    limit,
+    canManageBookings: auth.profile.role === 'admin' || auth.profile.role === 'staff',
+    canDeleteBookings: auth.profile.role === 'admin',
+  })
 }
 
 export async function PATCH(req: NextRequest) {
-  // Receipt review is admin-only but does not require MFA. Other booking
-  // management changes continue to require an AAL2 session.
-  const roleAuth = await requireUser(req, { roles: ['admin'] })
+  // Staff and admins handle routine booking review without an MFA gate.
+  const roleAuth = await requireStaff(req)
   if ('error' in roleAuth) return NextResponse.json({ error: roleAuth.error }, { status: roleAuth.status })
 
   const supabase = await createClient()
@@ -58,65 +64,32 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ message: paymentDecision === 'approve' ? 'Payment verified and booking confirmed.' : 'Payment proof rejected.' })
   }
 
-  const auth = await requireAdmin(req)
-  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
   const VALID = ['awaiting_payment', 'confirmed', 'cancelled', 'completed'] as const
   if (!bookingId || !VALID.includes(status)) {
     return NextResponse.json({ error: 'Invalid bookingId or status' }, { status: 400 })
   }
 
-  // Approval requests a deposit; confirmation is allowed only after manual verification.
-  const { data: current } = await supabase
-    .from('bookings').select('status, total_amount, user_id, event_type, venue_id, event_date').eq('id', bookingId).single()
-  if (!current) return NextResponse.json({ error: 'Booking not found.' }, { status: 404 })
-
-  const TRANSITIONS: Record<string, string[]> = {
-    pending:   ['awaiting_payment', 'cancelled'],
-    awaiting_payment: ['confirmed', 'cancelled'],
-    confirmed: ['completed', 'cancelled'],
-  }
-  const allowed = TRANSITIONS[current.status] ?? []
-  if (!allowed.includes(status)) {
-    return NextResponse.json(
-      { error: `Cannot transition from '${current?.status}' to '${status}'` },
-      { status: 422 }
-    )
-  }
-
-  const now = new Date()
-  const updates: Record<string, string | number | null> = {
-    status,
-    updated_at: now.toISOString(),
-  }
-  if (status === 'awaiting_payment') {
-    updates.deposit_amount = Math.round(Number(current.total_amount) * 0.3 * 100) / 100
-    updates.payment_deadline = new Date(now.getTime() + 48 * 60 * 60 * 1000).toISOString()
-    updates.payment_instructions = 'Call +63 975 940 3511 or use the Contact page to arrange payment. Include your event date and booking details so the venue can verify your downpayment.'
-    updates.deposit_paid_at = null
-  }
-  if (status === 'confirmed') updates.deposit_paid_at = now.toISOString()
-
-  const { data: updated, error } = await supabase
-    .from('bookings')
-    .update(updates)
-    .eq('id', bookingId)
-    .eq('status', current.status)
-    .select('id')
-    .maybeSingle()
+  const { data: previousStatus, error } = await supabase.rpc('update_booking_status_by_staff', {
+    p_booking_id: bookingId,
+    p_new_status: status,
+  })
   if (error?.code === '23505') {
     return NextResponse.json({ error: 'That venue date has another active hold or confirmed booking.' }, { status: 409 })
   }
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  if (!updated) return NextResponse.json({ error: 'This booking changed while you were reviewing it. Reload and try again.' }, { status: 409 })
+  if (error) {
+    const statusCode = error.message.includes('Booking not found') ? 404
+      : error.message.includes('Cannot transition') ? 422
+      : 400
+    return NextResponse.json({ error: error.message }, { status: statusCode })
+  }
 
   const { error: notificationError } = await supabase.rpc('notify_booking_status', { p_booking_id: bookingId })
   if (notificationError) console.error('[admin/bookings] Failed to notify customer:', notificationError.message)
 
   await Promise.all([
-    logActivity({ userId: auth.user.id, action: 'ADMIN_UPDATE_BOOKING', entity: 'bookings', entityId: bookingId, details: { status } }),
-    logAudit({ performedBy: auth.user.id, action: 'UPDATE_BOOKING_STATUS', targetTable: 'bookings', targetId: bookingId, oldData: { status: current?.status }, newData: { status } }),
+    logActivity({ userId: roleAuth.user.id, action: 'STAFF_UPDATE_BOOKING', entity: 'bookings', entityId: bookingId, details: { status } }),
+    logAudit({ performedBy: roleAuth.user.id, action: 'UPDATE_BOOKING_STATUS', targetTable: 'bookings', targetId: bookingId, oldData: { status: previousStatus }, newData: { status } }),
   ])
 
   return NextResponse.json({ message: 'Booking updated' })

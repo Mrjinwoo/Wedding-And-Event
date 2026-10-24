@@ -24,8 +24,8 @@ export default async function HomePage() {
     .limit(4);
 
   // Realtime stats
-  const [{ count: eventsHosted }, { count: activeVenues }] = await Promise.all([
-    supabase.from("bookings").select("*", { count: "exact", head: true }).in("status", ["confirmed", "completed"]),
+  const [{ data: eventsHosted }, { count: activeVenues }] = await Promise.all([
+    supabase.rpc("get_public_events_hosted_count"),
     supabase.from("venues").select("*", { count: "exact", head: true }).eq("is_active", true).eq("review_status", "approved"),
   ]);
 

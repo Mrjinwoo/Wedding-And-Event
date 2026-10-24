@@ -22,7 +22,7 @@ export default function ForgotPasswordPage() {
       // verifier when the user opens a code-based recovery link.
       const supabase = createClient();
       const redirectTo = new URL(
-        "/api/auth/callback?next=%2Freset-password",
+        "/auth/callback?next=%2Freset-password",
         window.location.origin,
       ).toString();
       const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {

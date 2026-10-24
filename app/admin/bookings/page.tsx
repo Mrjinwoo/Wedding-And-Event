@@ -30,6 +30,8 @@ export default function AdminBookingsPage() {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
+  const [canManageBookings, setCanManageBookings] = useState(false);
+  const [canDeleteBookings, setCanDeleteBookings] = useState(false);
   const [updating, setUpdating] = useState<string | null>(null);
   const [error, setError] = useState("");
 
@@ -47,6 +49,8 @@ export default function AdminBookingsPage() {
       }
       setBookings(Array.isArray(json?.data) ? json.data : []);
       setTotal(typeof json?.total === "number" ? json.total : 0);
+      setCanManageBookings(json?.canManageBookings === true);
+      setCanDeleteBookings(json?.canDeleteBookings === true);
     } catch (loadError) {
       setBookings([]);
       setTotal(0);
@@ -162,7 +166,7 @@ export default function AdminBookingsPage() {
                     <span className={`text-xs font-semibold px-2 py-1 rounded-full ${STATUS_COLORS[b.status] ?? "bg-gray-100 text-gray-600"}`}>
                       {b.status.replaceAll('_', ' ').replace(/\b\w/g, char => char.toUpperCase())}
                     </span>
-                    {b.status === "pending" && (
+                    {b.status === "pending" && canManageBookings && (
                       <div className="mt-2 flex flex-col gap-1.5">
                         <button onClick={() => updateStatus(b.id, "awaiting_payment")} disabled={updating === b.id}
                           className="text-left text-xs font-semibold text-[#9B2C4A] hover:underline disabled:opacity-50">
@@ -172,7 +176,7 @@ export default function AdminBookingsPage() {
                           className="text-left text-xs text-gray-500 hover:underline disabled:opacity-50">Decline request</button>
                       </div>
                     )}
-                    {b.status === "awaiting_payment" && (
+                    {b.status === "awaiting_payment" && canManageBookings && (
                       <div className="mt-2 flex flex-col gap-1.5">
                         <span className="text-xs text-gray-500">Deposit: ₱{Number(b.deposit_amount ?? 0).toLocaleString()}</span>
                         {b.payment_deadline && <span className="text-xs text-gray-500">Due: {new Date(b.payment_deadline).toLocaleString()}</span>}
@@ -197,16 +201,16 @@ export default function AdminBookingsPage() {
                           className="text-left text-xs text-gray-500 hover:underline disabled:opacity-50">Cancel hold</button>
                       </div>
                     )}
-                    {b.status === "confirmed" && (
+                    {b.status === "confirmed" && canManageBookings && (
                       <button onClick={() => updateStatus(b.id, "completed")} disabled={updating === b.id}
                         className="mt-2 block text-xs font-semibold text-blue-700 hover:underline disabled:opacity-50">Mark completed</button>
                     )}
                   </td>
                   <td className="px-4 py-3">
-                    <button onClick={() => deleteBooking(b.id)} disabled={updating === b.id}
+                    {canDeleteBookings && <button onClick={() => deleteBooking(b.id)} disabled={updating === b.id}
                       className="text-xs text-red-400 hover:text-red-600 hover:underline disabled:opacity-50">
                       Delete
-                    </button>
+                    </button>}
                   </td>
                 </tr>
               ))}

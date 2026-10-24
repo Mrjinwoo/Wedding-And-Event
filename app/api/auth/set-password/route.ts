@@ -19,7 +19,9 @@ export async function POST(req: NextRequest) {
   const { error } = await supabase.auth.updateUser({ password: parsed.data.password })
   if (error) return NextResponse.json({ error: error.message }, { status: 400 })
 
-  await supabase.auth.signOut({ scope: 'global' })
+  // End only the current browser's setup session; global sign-out revokes
+  // refresh tokens on other tabs/devices and makes them log refresh errors.
+  await supabase.auth.signOut({ scope: 'local' })
   const response = NextResponse.json({ message: 'Password created. Please log in.' })
   response.cookies.set(LV_COOKIE_NAME, '', lvClearOptions())
   return response

@@ -42,8 +42,10 @@ export async function POST(req: NextRequest) {
       entityId: user.id,
     }).catch(() => null)
 
-    // Sign out globally and clear lv cookie — user must log in fresh
-    await supabase.auth.signOut({ scope: 'global' })
+    // End this browser's recovery session and require a fresh login here.
+    // A global sign-out revokes refresh tokens on other tabs/devices too,
+    // which causes those sessions to emit refresh_token_not_found errors.
+    await supabase.auth.signOut({ scope: 'local' })
 
     const response = NextResponse.json({ message: 'Password updated successfully.' })
     response.cookies.set(LV_COOKIE_NAME, '', lvClearOptions())

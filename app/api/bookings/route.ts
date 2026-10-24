@@ -134,8 +134,13 @@ export async function PATCH(req: NextRequest) {
   const { bookingId } = await req.json()
   if (!bookingId) return NextResponse.json({ error: 'bookingId required' }, { status: 400 })
 
-  const { data: booking } = await supabase
+  const { data: booking, error: bookingLookupError } = await supabase
     .from('bookings').select('user_id, status').eq('id', bookingId).single()
+
+  if (bookingLookupError && bookingLookupError.code !== 'PGRST116') {
+    console.error('[bookings] Failed to look up booking for cancellation:', bookingLookupError.message)
+    return NextResponse.json({ error: 'Could not verify this booking. Please try again.' }, { status: 500 })
+  }
 
   if (!booking || booking.user_id !== auth.user.id) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
